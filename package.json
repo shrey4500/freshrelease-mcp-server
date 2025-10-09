@@ -4,6 +4,7 @@
   "description": "MCP server for Freshrelease API integration",
   "type": "module",
   "main": "dist/index.js",
+  "module": "./src/index.ts",
   "bin": {
     "freshrelease-mcp-server": "dist/index.js"
   },

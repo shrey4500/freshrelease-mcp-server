@@ -1,47 +1,33 @@
-import { createStatelessServer } from "@smithery/sdk/server/stateless.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
-const API_TOKEN = process.env.FRESHRELEASE_API_TOKEN || "";
 const BASE_URL = "https://freshworks.freshrelease.com";
 const PROJECT_KEY = "FBOTS";
 
-interface FreshReleaseRequestOptions {
-  method: string;
-  endpoint: string;
-  body?: any;
-}
+// Configuration schema for Smithery
+export const configSchema = z.object({
+  apiToken: z.string().describe("Freshrelease API Token"),
+});
 
-async function makeFreshReleaseRequest({ method, endpoint, body }: FreshReleaseRequestOptions) {
-  const url = `${BASE_URL}${endpoint}`;
-  
-  const headers: Record<string, string> = {
-    "Authorization": `Token ${API_TOKEN}`,
-    "Content-Type": "application/json",
-  };
+export default function createServer({ config }: { config: z.infer<typeof configSchema> }) {
+  const server = new Server(
+    {
+      name: "freshrelease-mcp-server",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
 
-  const options: RequestInit = {
-    method,
-    headers,
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-  
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-  }
-
-  return await response.json();
-}
-
-export default createStatelessServer({
-  capabilities: {
-    tools: {},
-  },
-  
-  async listTools() {
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
         {
@@ -67,30 +53,48 @@ export default createStatelessServer({
         },
       ],
     };
-  },
-  
-  async callTool({ name, arguments: args }) {
-    switch (name) {
-      case "freshrelease_get_users": {
-        const page = args.page || 1;
-        const data = await makeFreshReleaseRequest({
-          method: "GET",
-          endpoint: `/${PROJECT_KEY}/users?page=${page}`,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    const headers: Record<string, string> = {
+      "Authorization": `Token ${config.apiToken}`,
+      "Content-Type": "application/json",
+    };
+
+    try {
+      switch (name) {
+        case "freshrelease_get_users": {
+          const page = args.page || 1;
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_get_issue": {
+          const { issue_key } = args;
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
       }
-      
-      case "freshrelease_get_issue": {
-        const { issue_key } = args;
-        const data = await makeFreshReleaseRequest({
-          method: "GET",
-          endpoint: `/${PROJECT_KEY}/issues/${issue_key}`,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-      }
-      
-      default:
-        throw new Error(`Unknown tool: ${name}`);
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
     }
-  },
-});
+  });
+
+  return server;
+}

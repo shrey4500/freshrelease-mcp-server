@@ -1,4 +1,3 @@
-
 #!/usr/bin/env node
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -8,7 +7,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const API_TOKEN = process.env.FRESHRELEASE_API_TOKEN || "";
+// API token can come from env variable or be passed during initialization
+let API_TOKEN = process.env.FRESHRELEASE_API_TOKEN || "";
 const BASE_URL = "https://freshworks.freshrelease.com";
 const PROJECT_KEY = "FBOTS";
 
@@ -16,13 +16,19 @@ interface FreshReleaseRequestOptions {
   method: string;
   endpoint: string;
   body?: any;
+  apiToken?: string;
 }
 
-async function makeFreshReleaseRequest({ method, endpoint, body }: FreshReleaseRequestOptions) {
+async function makeFreshReleaseRequest({ method, endpoint, body, apiToken }: FreshReleaseRequestOptions) {
+  const token = apiToken || API_TOKEN;
+  if (!token) {
+    throw new Error("FRESHRELEASE_API_TOKEN is required. Please provide it via environment variable or connection parameter.");
+  }
+  
   const url = `${BASE_URL}${endpoint}`;
   
   const headers: Record<string, string> = {
-    "Authorization": `Token ${API_TOKEN}`,
+    "Authorization": `Token ${token}`,
     "Content-Type": "application/json",
   };
 
@@ -56,9 +62,24 @@ const server = new Server(
   }
 );
 
+// Store API token from initialization if provided
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      {
+        name: "freshrelease_set_api_token",
+        description: "Set the Freshrelease API token for this session. Call this first if you didn't provide the token via environment variable.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            api_token: {
+              type: "string",
+              description: "Your Freshrelease API token",
+            },
+          },
+          required: ["api_token"],
+        },
+      },
       {
         name: "freshrelease_get_users",
         description: "Get all users in the Freshrelease project with pagination support",
@@ -220,6 +241,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
     switch (name) {
+      case "freshrelease_set_api_token": {
+        const { api_token } = args;
+        API_TOKEN = api_token;
+        return {
+          content: [{ type: "text", text: "API token set successfully for this session." }],
+        };
+      }
+
       case "freshrelease_get_users": {
         const page = args.page || 1;
         const data = await makeFreshReleaseRequest({

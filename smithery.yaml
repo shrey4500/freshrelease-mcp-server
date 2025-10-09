@@ -2,7 +2,7 @@ name: freshrelease-mcp-server
 version: 1.0.0
 description: MCP server for Freshrelease API integration
 
-runtime: typescript
+runtime: nodejs
 entrypoint: dist/index.js
 
 build:
@@ -10,7 +10,9 @@ build:
   compile: npm run build
 
 env:
-  - FRESHRELEASE_API_TOKEN
+  FRESHRELEASE_API_TOKEN:
+    description: Freshrelease API Token
+    required: true
 
 capabilities:
   tools: true

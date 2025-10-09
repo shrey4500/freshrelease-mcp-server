@@ -66,7 +66,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
     try {
       switch (name) {
         case "freshrelease_get_users": {
-          const page = args.page || 1;
+          const page = (args as any)?.page || 1;
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
             method: "GET",
             headers,
@@ -76,7 +76,10 @@ export default function createServer({ config }: { config: z.infer<typeof config
         }
 
         case "freshrelease_get_issue": {
-          const { issue_key } = args;
+          const issue_key = (args as any)?.issue_key;
+          if (!issue_key) {
+            throw new Error("issue_key is required");
+          }
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
             method: "GET",
             headers,

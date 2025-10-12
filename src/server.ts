@@ -117,7 +117,6 @@ app.post('/tools/call', async (req, res) => {
 app.get('/sse', async (req, res) => {
   console.log('New SSE connection from:', req.ip);
   
-  // Prevent request timeout
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
   req.socket.setKeepAlive(true);
@@ -131,15 +130,12 @@ app.get('/sse', async (req, res) => {
     await mcpServer.connect(transport);
     console.log('MCP server connected successfully');
     
-    // Keep the connection alive
     req.on('close', () => {
       console.log('SSE connection closed by client');
-      mcpServer.close();
     });
     
     req.on('error', (error) => {
       console.error('SSE connection error:', error);
-      mcpServer.close();
     });
   } catch (error) {
     console.error('Error connecting MCP server:', error);
@@ -149,7 +145,9 @@ app.get('/sse', async (req, res) => {
 
 app.post('/messages', async (req, res) => {
   console.log('Received message:', JSON.stringify(req.body));
-  res.status(200).end();
+  // SSEServerTransport handles the /messages endpoint internally
+  // Just acknowledge receipt
+  res.status(202).json({ ok: true });
 });
 
 app.listen(PORT, () => {

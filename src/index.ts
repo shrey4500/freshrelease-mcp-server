@@ -32,21 +32,28 @@ export default function createServer({ config }: { config: z.infer<typeof config
       tools: [
         {
           name: "freshrelease_get_users",
-          description: "Get all users in the Freshrelease project",
+          description: "Get all users in the Freshrelease project. Use this tool when asked about team members, users, or people in Freshrelease.",
           inputSchema: {
             type: "object",
             properties: {
-              page: { type: "number", description: "Page number", default: 1 },
+              page: { 
+                type: "number", 
+                description: "Page number for pagination. Defaults to 1 if not specified.", 
+                default: 1 
+              },
             },
           },
         },
         {
           name: "freshrelease_get_issue",
-          description: "Get a specific issue by key",
+          description: "Get detailed information about a specific Freshrelease ticket or issue. Use this tool whenever asked about a ticket, issue, bug, task, or story. Also use it when given an issue key like FBOTS-46821. Returns complete details including title, description, status, priority, assignee, reporter, dates, comments, and custom fields.",
           inputSchema: {
             type: "object",
             properties: {
-              issue_key: { type: "string", description: "Issue key (e.g., FBOTS-123)" },
+              issue_key: { 
+                type: "string", 
+                description: "The Freshrelease issue key in the format PROJECT-NUMBER, for example: FBOTS-46821 or FBOTS-12345. This parameter is required and must be provided." 
+              },
             },
             required: ["issue_key"],
           },

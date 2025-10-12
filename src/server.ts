@@ -124,12 +124,17 @@ app.post('/mcp', async (req, res) => {
   console.log('Body:', JSON.stringify(req.body, null, 2));
   
   try {
-    const mcpServer = createServer({ config: { apiToken: API_TOKEN } });
-    
-    // Create a simple request/response handler
     const request = req.body;
     
     console.log(`⚙️  Processing ${request.method} request...`);
+    
+    // Handle notifications (no response needed)
+    if (request.method?.startsWith('notifications/')) {
+      console.log('📢 Notification received (no response needed)');
+      console.log('✅✅✅ MCP NOTIFICATION HANDLED ✅✅✅');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return res.status(204).send(); // No content
+    }
     
     let result;
     
@@ -191,7 +196,7 @@ app.post('/mcp', async (req, res) => {
         console.log('🔨 Handling tools/call...');
         const { name, arguments: args } = request.params;
         console.log(`  Tool: ${name}`);
-        console.log(`  Args:`, args);
+        console.log(`  Args:`, JSON.stringify(args, null, 2));
         
         const BASE_URL = "https://freshworks.freshrelease.com";
         const PROJECT_KEY = "FBOTS";
@@ -205,20 +210,28 @@ app.post('/mcp', async (req, res) => {
         
         if (name === "freshrelease_get_users") {
           const page = args?.page || 1;
+          console.log(`  → Fetching users, page ${page}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
             method: "GET",
             headers,
           });
+          console.log(`  ← API status: ${response.status}`);
           const data = await response.json();
+          console.log(`  ✅ Users retrieved`);
           content = [{ type: "text", text: JSON.stringify(data, null, 2) }];
         } else if (name === "freshrelease_get_issue") {
           const issue_key = args?.issue_key;
+          console.log(`  → Fetching issue: ${issue_key}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
             method: "GET",
             headers,
           });
+          console.log(`  ← API status: ${response.status}`);
           const data = await response.json();
+          console.log(`  ✅ Issue retrieved`);
           content = [{ type: "text", text: JSON.stringify(data, null, 2) }];
+        } else {
+          throw new Error(`Unknown tool: ${name}`);
         }
         
         result = {
@@ -241,7 +254,7 @@ app.post('/mcp', async (req, res) => {
         };
     }
     
-    console.log('📤 Sending response:', JSON.stringify(result, null, 2));
+    console.log('📤 Sending response');
     res.json(result);
     console.log('✅✅✅ MCP REQUEST COMPLETED ✅✅✅');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

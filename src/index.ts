@@ -1,5 +1,4 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -9,7 +8,6 @@ import { z } from "zod";
 const BASE_URL = "https://freshworks.freshrelease.com";
 const PROJECT_KEY = "FBOTS";
 
-// Configuration schema for Smithery
 export const configSchema = z.object({
   apiToken: z.string().describe("Freshrelease API Token"),
 });
@@ -27,8 +25,10 @@ export default function createServer({ config }: { config: z.infer<typeof config
     }
   );
 
+  // Log when tools are listed
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
+    console.log('📋 Client requested tools list');
+    const tools = {
       tools: [
         {
           name: "freshrelease_get_users",
@@ -53,10 +53,14 @@ export default function createServer({ config }: { config: z.infer<typeof config
         },
       ],
     };
+    console.log('✓ Returning tools:', JSON.stringify(tools, null, 2));
+    return tools;
   });
 
+  // Log when tools are called
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    console.log(`🔧 Tool called: ${name}`, JSON.stringify(args, null, 2));
 
     const headers: Record<string, string> = {
       "Authorization": `Token ${config.apiToken}`,
@@ -67,11 +71,13 @@ export default function createServer({ config }: { config: z.infer<typeof config
       switch (name) {
         case "freshrelease_get_users": {
           const page = (args as any)?.page || 1;
+          console.log(`Fetching users, page ${page}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
             method: "GET",
             headers,
           });
           const data = await response.json();
+          console.log('✓ Users fetched successfully');
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 
@@ -80,11 +86,13 @@ export default function createServer({ config }: { config: z.infer<typeof config
           if (!issue_key) {
             throw new Error("issue_key is required");
           }
+          console.log(`Fetching issue: ${issue_key}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
             method: "GET",
             headers,
           });
           const data = await response.json();
+          console.log('✓ Issue fetched successfully');
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 
@@ -92,6 +100,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error) {
+      console.error('✗ Tool execution error:', error);
       return {
         content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,

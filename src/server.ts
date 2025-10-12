@@ -286,9 +286,11 @@ app.post('/mcp', async (req, res) => {
             console.log('❌ Error details:', errorData);
             content = [{ type: "text", text: JSON.stringify({ error: errorData }, null, 2) }];
           } else {
-            const data = await response.json();
+            const data: any = await response.json();
             console.log(`✅ Issue data retrieved successfully`);
-            console.log(`📊 Issue: ${data.issue?.key || 'N/A'} - ${data.issue?.title || 'N/A'}`);
+            const issueKey = data?.issue?.key || data?.key || 'N/A';
+            const issueTitle = data?.issue?.title || data?.title || 'N/A';
+            console.log(`📊 Issue: ${issueKey} - ${issueTitle}`);
             console.log(`📊 Data size: ${JSON.stringify(data).length} characters`);
             content = [{ type: "text", text: JSON.stringify(data, null, 2) }];
           }

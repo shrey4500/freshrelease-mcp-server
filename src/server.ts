@@ -13,7 +13,6 @@ if (!API_TOKEN) {
 }
 
 app.use(express.json());
-app.use(express.text({ type: 'text/event-stream' }));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -116,58 +115,44 @@ app.post('/tools/call', async (req, res) => {
   }
 });
 
-// SSE endpoint for MCP
+// SSE endpoint - Let SSEServerTransport handle ALL headers
 app.get('/sse', async (req, res) => {
-  console.log('New MCP SSE connection established');
+  console.log('New MCP SSE connection request');
   
-  // Set SSE headers immediately
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'X-Accel-Buffering': 'no',
-  });
-  
-  // Keep connection alive
+  // Configure socket BEFORE creating transport
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
   req.socket.setKeepAlive(true);
   
   try {
-    // Create SSE transport
+    // Let SSEServerTransport set all headers
     const transport = new SSEServerTransport('/messages', res);
     
-    // Create MCP server instance
+    console.log('SSEServerTransport created');
+    
+    // Create and connect MCP server
     const createServerModule = await import('./index.js');
     const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
     
-    // Connect the server to the transport
     await mcpServer.connect(transport);
-    console.log('MCP server connected successfully via SSE');
+    console.log('✓ MCP server connected successfully');
     
-    // Handle client disconnect
+    // Handle cleanup
     req.on('close', () => {
-      console.log('MCP SSE client disconnected');
-      try {
-        mcpServer.close?.();
-      } catch (e) {
-        console.error('Error closing server:', e);
-      }
+      console.log('Client disconnected');
+      mcpServer.close?.();
     });
     
     req.on('error', (error) => {
-      console.error('MCP SSE connection error:', error);
-      try {
-        mcpServer.close?.();
-      } catch (e) {
-        console.error('Error closing server:', e);
-      }
+      console.error('Connection error:', error);
+      mcpServer.close?.();
     });
     
   } catch (error) {
-    console.error('Failed to establish MCP SSE connection:', error);
-    res.end();
+    console.error('✗ MCP SSE setup failed:', error);
+    if (!res.headersSent) {
+      res.status(500).end();
+    }
   }
 });
 

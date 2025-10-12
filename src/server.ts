@@ -14,6 +14,16 @@ if (!API_TOKEN) {
 
 app.use(express.json());
 
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -28,7 +38,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// REST endpoint to list tools
 app.get('/tools', (req, res) => {
   res.json({
     tools: [
@@ -57,7 +66,6 @@ app.get('/tools', (req, res) => {
   });
 });
 
-// REST endpoint to call tools
 app.post('/tools/call', async (req, res) => {
   try {
     const { name, arguments: args } = req.body;
@@ -106,18 +114,8 @@ app.post('/tools/call', async (req, res) => {
   }
 });
 
-// SSE endpoint for Claude Desktop
 app.get('/sse', async (req, res) => {
   console.log('New SSE connection from:', req.ip);
-  
-  // Set SSE headers
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  
-  // Send initial comment to keep connection alive
-  res.write(':ok\n\n');
   
   const transport = new SSEServerTransport('/messages', res);
   
@@ -129,11 +127,9 @@ app.get('/sse', async (req, res) => {
     console.log('MCP server connected successfully');
   } catch (error) {
     console.error('Error connecting MCP server:', error);
-    res.end();
     return;
   }
   
-  // Handle client disconnect
   req.on('close', () => {
     console.log('SSE connection closed by client');
   });

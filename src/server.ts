@@ -1,7 +1,6 @@
 import express from 'express';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +19,6 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
-app.use(express.text({ type: 'text/plain' }));
 
 // CORS
 app.use((req, res, next) => {
@@ -132,8 +130,8 @@ app.post('/tools/call', async (req, res) => {
   }
 });
 
-// Store active sessions
-const sessions = new Map<string, { server: Server; transport: Transport }>();
+// Store active transports by session
+const transports = new Map();
 
 app.get('/sse', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -154,6 +152,11 @@ app.get('/sse', async (req, res) => {
     const transport = new SSEServerTransport(`/message/${sessionId}`, res);
     console.log('✅ SSEServerTransport created');
     
+    // Store the transport so we can access it in the message handler
+    console.log(`💾 Storing transport for session ${sessionId} in transports map`);
+    transports.set(sessionId, transport);
+    console.log(`📊 Active transports: ${transports.size}`);
+    
     console.log('⚙️  Importing MCP server module...');
     const createServerModule = await import('./index.js');
     console.log('✅ MCP server module imported');
@@ -161,10 +164,6 @@ app.get('/sse', async (req, res) => {
     console.log('⚙️  Creating MCP server instance...');
     const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
     console.log('✅ MCP server instance created');
-    
-    console.log(`💾 Storing session ${sessionId} in sessions map`);
-    sessions.set(sessionId, { server: mcpServer, transport });
-    console.log(`📊 Active sessions: ${sessions.size}`);
     
     console.log(`⚙️  Connecting MCP server to transport...`);
     await mcpServer.connect(transport);
@@ -177,8 +176,8 @@ app.get('/sse', async (req, res) => {
       console.log(`🔌 SESSION ${sessionId} - CLIENT CLOSED CONNECTION`);
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`🗑️  Cleaning up session ${sessionId}...`);
-      sessions.delete(sessionId);
-      console.log(`📊 Active sessions remaining: ${sessions.size}`);
+      transports.delete(sessionId);
+      console.log(`📊 Active transports remaining: ${transports.size}`);
       try {
         mcpServer.close?.();
         console.log('✅ MCP server closed');
@@ -193,8 +192,8 @@ app.get('/sse', async (req, res) => {
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.error('Error details:', error);
       console.log(`🗑️  Cleaning up session ${sessionId}...`);
-      sessions.delete(sessionId);
-      console.log(`📊 Active sessions remaining: ${sessions.size}`);
+      transports.delete(sessionId);
+      console.log(`📊 Active transports remaining: ${transports.size}`);
       try {
         mcpServer.close?.();
         console.log('✅ MCP server closed');
@@ -214,11 +213,11 @@ app.get('/sse', async (req, res) => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.error('Error:', error);
     console.error('Stack:', error instanceof Error ? error.stack : 'No stack');
-    sessions.delete(sessionId);
+    transports.delete(sessionId);
   }
 });
 
-// Handle messages for each session
+// Handle incoming messages - forward to transport
 app.post('/message/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -226,19 +225,33 @@ app.post('/message/:sessionId', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('Message body:', JSON.stringify(req.body, null, 2));
   console.log('Content-Type:', req.headers['content-type']);
+  console.log(`Method: ${req.body?.method || 'unknown'}`);
   
-  const session = sessions.get(sessionId);
-  if (!session) {
-    console.error(`❌ SESSION NOT FOUND: ${sessionId}`);
-    console.log(`📊 Available sessions: ${Array.from(sessions.keys()).join(', ')}`);
+  const transport = transports.get(sessionId);
+  if (!transport) {
+    console.error(`❌ TRANSPORT NOT FOUND FOR SESSION: ${sessionId}`);
+    console.log(`📊 Available sessions: ${Array.from(transports.keys()).join(', ') || 'none'}`);
     return res.status(404).json({ error: 'Session not found' });
   }
   
-  console.log(`✅ Session found, transport exists: ${!!session.transport}`);
+  console.log(`✅ Transport found for session ${sessionId}`);
+  console.log(`📦 Transport type: ${transport.constructor.name}`);
+  console.log(`🔍 Transport has handlePostMessage: ${typeof transport.handlePostMessage === 'function'}`);
   
-  // The transport should handle this internally
-  console.log('✅ Acknowledging message receipt (202)');
-  res.status(202).send();
+  try {
+    console.log('⚙️  Calling transport.handlePostMessage...');
+    await transport.handlePostMessage(req, res);
+    console.log('✅✅✅ MESSAGE HANDLED BY TRANSPORT ✅✅✅');
+  } catch (error) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌❌❌ ERROR HANDLING MESSAGE ❌❌❌');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('Error:', error);
+    console.error('Stack:', error instanceof Error ? error.stack : 'No stack');
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 

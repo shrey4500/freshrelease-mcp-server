@@ -115,7 +115,7 @@ app.post('/tools/call', async (req, res) => {
 });
 
 app.get('/sse', async (req, res) => {
-  console.log('New SSE connection from:', req.ip);
+  console.log('SSE connection established');
   
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
@@ -123,32 +123,18 @@ app.get('/sse', async (req, res) => {
   
   const transport = new SSEServerTransport('/messages', res);
   
-  const createServerModule = await import('./index.js');
-  const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
-  
   try {
+    const createServerModule = await import('./index.js');
+    const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
+    
     await mcpServer.connect(transport);
-    console.log('MCP server connected successfully');
-    
-    req.on('close', () => {
-      console.log('SSE connection closed by client');
-    });
-    
-    req.on('error', (error) => {
-      console.error('SSE connection error:', error);
-    });
+    console.log('MCP server connected and ready');
   } catch (error) {
-    console.error('Error connecting MCP server:', error);
-    res.end();
+    console.error('Failed to connect MCP server:', error);
   }
 });
 
-app.post('/messages', async (req, res) => {
-  console.log('Received message:', JSON.stringify(req.body));
-  // SSEServerTransport handles the /messages endpoint internally
-  // Just acknowledge receipt
-  res.status(202).json({ ok: true });
-});
+// DO NOT add a /messages handler - SSEServerTransport handles it
 
 app.listen(PORT, () => {
   console.log(`Freshrelease MCP Server running on port ${PORT}`);

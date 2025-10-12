@@ -1,6 +1,5 @@
 import express from 'express';
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import createServer from './index.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,12 +11,6 @@ if (!API_TOKEN) {
   process.exit(1);
 }
 
-// Middleware with logging
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
-  next();
-});
-
 app.use(express.json());
 
 // CORS
@@ -26,24 +19,25 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') {
-    console.log('✅ OPTIONS request handled');
     return res.sendStatus(200);
   }
   next();
 });
 
 app.get('/', (req, res) => {
-  console.log('🏠 Health check requested');
   res.json({ 
     status: 'ok', 
     service: 'freshrelease-mcp-server',
     version: '1.0.0',
-    mcp_sse: '/sse'
+    endpoints: {
+      mcp: '/mcp',
+      tools: '/tools',
+      tools_call: '/tools/call'
+    }
   });
 });
 
 app.get('/tools', (req, res) => {
-  console.log('🔧 Tools list requested');
   res.json({
     tools: [
       {
@@ -72,7 +66,7 @@ app.get('/tools', (req, res) => {
 });
 
 app.post('/tools/call', async (req, res) => {
-  console.log('🔨 Tool call received:', JSON.stringify(req.body, null, 2));
+  console.log('🔨 Direct tool call:', req.body?.name);
   
   try {
     const { name, arguments: args } = req.body;
@@ -88,14 +82,11 @@ app.post('/tools/call', async (req, res) => {
     switch (name) {
       case "freshrelease_get_users": {
         const page = args?.page || 1;
-        console.log(`  → Fetching users, page ${page}`);
         const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
           method: "GET",
           headers,
         });
-        console.log(`  ← API response status: ${response.status}`);
         const data = await response.json();
-        console.log(`  ✅ Users data retrieved`);
         res.json({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
         break;
       }
@@ -103,156 +94,171 @@ app.post('/tools/call', async (req, res) => {
       case "freshrelease_get_issue": {
         const issue_key = args?.issue_key;
         if (!issue_key) {
-          console.log('  ❌ Missing issue_key');
           return res.status(400).json({ error: "issue_key is required" });
         }
-        console.log(`  → Fetching issue: ${issue_key}`);
         const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
           method: "GET",
           headers,
         });
-        console.log(`  ← API response status: ${response.status}`);
         const data = await response.json();
-        console.log(`  ✅ Issue data retrieved`);
         res.json({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
         break;
       }
 
       default:
-        console.log(`  ❌ Unknown tool: ${name}`);
         res.status(400).json({ error: `Unknown tool: ${name}` });
     }
   } catch (error) {
-    console.error('  ❌ Tool execution error:', error);
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error' 
     });
   }
 });
 
-// Store active transports by session
-const transports = new Map();
-
-app.get('/sse', async (req, res) => {
+// MCP endpoint - handles JSON-RPC over HTTP
+app.post('/mcp', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔌 NEW SSE CONNECTION INITIATED');
+  console.log('📨 MCP REQUEST');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
-  
-  req.socket.setKeepAlive(true);
-  req.socket.setNoDelay(true);
-  req.socket.setTimeout(0);
-  console.log('✅ Socket configured (keepAlive, noDelay, no timeout)');
-  
-  const sessionId = Math.random().toString(36).substring(7);
-  console.log(`🆔 Generated session ID: ${sessionId}`);
+  console.log('Method:', req.body?.method);
+  console.log('Body:', JSON.stringify(req.body, null, 2));
   
   try {
-    console.log(`⚙️  Creating SSEServerTransport for session ${sessionId}...`);
-    const transport = new SSEServerTransport(`/message/${sessionId}`, res);
-    console.log('✅ SSEServerTransport created');
+    const mcpServer = createServer({ config: { apiToken: API_TOKEN } });
     
-    // Store the transport so we can access it in the message handler
-    console.log(`💾 Storing transport for session ${sessionId} in transports map`);
-    transports.set(sessionId, transport);
-    console.log(`📊 Active transports: ${transports.size}`);
+    // Create a simple request/response handler
+    const request = req.body;
     
-    console.log('⚙️  Importing MCP server module...');
-    const createServerModule = await import('./index.js');
-    console.log('✅ MCP server module imported');
+    console.log(`⚙️  Processing ${request.method} request...`);
     
-    console.log('⚙️  Creating MCP server instance...');
-    const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
-    console.log('✅ MCP server instance created');
+    let result;
     
-    console.log(`⚙️  Connecting MCP server to transport...`);
-    await mcpServer.connect(transport);
-    console.log(`✅✅✅ MCP SERVER CONNECTED FOR SESSION ${sessionId} ✅✅✅`);
-    
-    console.log('⚙️  Setting up connection event handlers...');
-    
-    req.on('close', () => {
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`🔌 SESSION ${sessionId} - CLIENT CLOSED CONNECTION`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`🗑️  Cleaning up session ${sessionId}...`);
-      transports.delete(sessionId);
-      console.log(`📊 Active transports remaining: ${transports.size}`);
-      try {
-        mcpServer.close?.();
-        console.log('✅ MCP server closed');
-      } catch (e) {
-        console.error('❌ Error closing MCP server:', e);
-      }
-    });
-    
-    req.on('error', (error) => {
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`❌ SESSION ${sessionId} - CONNECTION ERROR`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.error('Error details:', error);
-      console.log(`🗑️  Cleaning up session ${sessionId}...`);
-      transports.delete(sessionId);
-      console.log(`📊 Active transports remaining: ${transports.size}`);
-      try {
-        mcpServer.close?.();
-        console.log('✅ MCP server closed');
-      } catch (e) {
-        console.error('❌ Error closing MCP server:', e);
-      }
-    });
-    
-    console.log('✅ Event handlers registered');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`🎉 SSE CONNECTION FULLY ESTABLISHED FOR SESSION ${sessionId}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-  } catch (error) {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌❌❌ SSE SETUP FAILED ❌❌❌');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('Error:', error);
-    console.error('Stack:', error instanceof Error ? error.stack : 'No stack');
-    transports.delete(sessionId);
-  }
-});
+    switch (request.method) {
+      case 'initialize':
+        console.log('🔧 Handling initialize...');
+        result = {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            protocolVersion: '2025-03-26',
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: 'freshrelease-mcp-server',
+              version: '1.0.0'
+            }
+          }
+        };
+        console.log('✅ Initialize response prepared');
+        break;
+        
+      case 'tools/list':
+        console.log('📋 Handling tools/list...');
+        result = {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            tools: [
+              {
+                name: "freshrelease_get_users",
+                description: "Get all users in the Freshrelease project",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    page: { type: "number", description: "Page number", default: 1 },
+                  },
+                },
+              },
+              {
+                name: "freshrelease_get_issue",
+                description: "Get a specific issue by key",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    issue_key: { type: "string", description: "Issue key (e.g., FBOTS-123)" },
+                  },
+                  required: ["issue_key"],
+                },
+              },
+            ]
+          }
+        };
+        console.log('✅ Tools list response prepared');
+        break;
+        
+      case 'tools/call':
+        console.log('🔨 Handling tools/call...');
+        const { name, arguments: args } = request.params;
+        console.log(`  Tool: ${name}`);
+        console.log(`  Args:`, args);
+        
+        const BASE_URL = "https://freshworks.freshrelease.com";
+        const PROJECT_KEY = "FBOTS";
+        
+        const headers: Record<string, string> = {
+          "Authorization": `Token ${API_TOKEN}`,
+          "Content-Type": "application/json",
+        };
 
-// Handle incoming messages - forward to transport
-app.post('/message/:sessionId', async (req, res) => {
-  const { sessionId } = req.params;
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`📨 MESSAGE RECEIVED FOR SESSION: ${sessionId}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Message body:', JSON.stringify(req.body, null, 2));
-  console.log('Content-Type:', req.headers['content-type']);
-  console.log(`Method: ${req.body?.method || 'unknown'}`);
-  
-  const transport = transports.get(sessionId);
-  if (!transport) {
-    console.error(`❌ TRANSPORT NOT FOUND FOR SESSION: ${sessionId}`);
-    console.log(`📊 Available sessions: ${Array.from(transports.keys()).join(', ') || 'none'}`);
-    return res.status(404).json({ error: 'Session not found' });
-  }
-  
-  console.log(`✅ Transport found for session ${sessionId}`);
-  console.log(`📦 Transport type: ${transport.constructor.name}`);
-  console.log(`🔍 Transport has handlePostMessage: ${typeof transport.handlePostMessage === 'function'}`);
-  
-  try {
-    console.log('⚙️  Calling transport.handlePostMessage...');
-    await transport.handlePostMessage(req, res);
-    console.log('✅✅✅ MESSAGE HANDLED BY TRANSPORT ✅✅✅');
-  } catch (error) {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌❌❌ ERROR HANDLING MESSAGE ❌❌❌');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('Error:', error);
-    console.error('Stack:', error instanceof Error ? error.stack : 'No stack');
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error' });
+        let content;
+        
+        if (name === "freshrelease_get_users") {
+          const page = args?.page || 1;
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          content = [{ type: "text", text: JSON.stringify(data, null, 2) }];
+        } else if (name === "freshrelease_get_issue") {
+          const issue_key = args?.issue_key;
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          content = [{ type: "text", text: JSON.stringify(data, null, 2) }];
+        }
+        
+        result = {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: { content }
+        };
+        console.log('✅ Tool call response prepared');
+        break;
+        
+      default:
+        console.log(`❌ Unknown method: ${request.method}`);
+        result = {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32601,
+            message: `Method not found: ${request.method}`
+          }
+        };
     }
+    
+    console.log('📤 Sending response:', JSON.stringify(result, null, 2));
+    res.json(result);
+    console.log('✅✅✅ MCP REQUEST COMPLETED ✅✅✅');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+  } catch (error) {
+    console.error('❌❌❌ MCP REQUEST FAILED ❌❌❌');
+    console.error('Error:', error);
+    res.status(500).json({
+      jsonrpc: '2.0',
+      id: req.body?.id,
+      error: {
+        code: -32603,
+        message: error instanceof Error ? error.message : 'Internal error'
+      }
+    });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
 app.listen(PORT, () => {
@@ -261,9 +267,8 @@ app.listen(PORT, () => {
   console.log('🚀 FRESHRELEASE MCP SERVER STARTED');
   console.log('═══════════════════════════════════════════');
   console.log(`   Port: ${PORT}`);
-  console.log(`   SSE Endpoint: http://localhost:${PORT}/sse`);
+  console.log(`   MCP Endpoint: http://localhost:${PORT}/mcp`);
   console.log(`   Health: http://localhost:${PORT}/`);
-  console.log(`   Tools: http://localhost:${PORT}/tools`);
   console.log('═══════════════════════════════════════════');
   console.log('');
 });

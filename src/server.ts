@@ -118,38 +118,32 @@ app.post('/tools/call', async (req, res) => {
 // SSE endpoint
 app.get('/sse', async (req, res) => {
   console.log('=== New MCP SSE connection ===');
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
   
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
   req.socket.setKeepAlive(true);
   
   try {
+    // SSEServerTransport handles everything including /messages
     const transport = new SSEServerTransport('/messages', res);
     console.log('Transport created');
     
     const createServerModule = await import('./index.js');
     const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
     
-    // Log all server events
-    mcpServer.onclose = () => {
-      console.log('Server onclose event');
-    };
-    
     await mcpServer.connect(transport);
     console.log('✓ Server connected');
     
-    // Keep connection alive with heartbeat
     const heartbeat = setInterval(() => {
       if (!res.writableEnded) {
-        console.log('Heartbeat');
+        console.log('💓');
       } else {
         clearInterval(heartbeat);
       }
     }, 30000);
     
     req.on('close', () => {
-      console.log('Client close event');
+      console.log('Client disconnected');
       clearInterval(heartbeat);
       mcpServer.close?.();
     });
@@ -168,15 +162,9 @@ app.get('/sse', async (req, res) => {
   }
 });
 
-// Log POST to /messages
-app.post('/messages', (req, res) => {
-  console.log('POST /messages received:', JSON.stringify(req.body, null, 2));
-  res.status(200).json({ received: true });
-});
+// DO NOT add app.post('/messages') - SSEServerTransport handles it internally
 
 app.listen(PORT, () => {
   console.log(`Freshrelease MCP Server running on port ${PORT}`);
-  console.log(`Health: http://localhost:${PORT}/`);
   console.log(`MCP SSE: http://localhost:${PORT}/sse`);
-  console.log(`REST API: http://localhost:${PORT}/tools`);
 });

@@ -115,45 +115,63 @@ app.post('/tools/call', async (req, res) => {
   }
 });
 
-// SSE endpoint - Let SSEServerTransport handle ALL headers
+// SSE endpoint
 app.get('/sse', async (req, res) => {
-  console.log('New MCP SSE connection request');
+  console.log('=== New MCP SSE connection ===');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
   
-  // Configure socket BEFORE creating transport
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
   req.socket.setKeepAlive(true);
   
   try {
-    // Let SSEServerTransport set all headers
     const transport = new SSEServerTransport('/messages', res);
+    console.log('Transport created');
     
-    console.log('SSEServerTransport created');
-    
-    // Create and connect MCP server
     const createServerModule = await import('./index.js');
     const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
     
-    await mcpServer.connect(transport);
-    console.log('✓ MCP server connected successfully');
+    // Log all server events
+    mcpServer.onclose = () => {
+      console.log('Server onclose event');
+    };
     
-    // Handle cleanup
+    await mcpServer.connect(transport);
+    console.log('✓ Server connected');
+    
+    // Keep connection alive with heartbeat
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) {
+        console.log('Heartbeat');
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 30000);
+    
     req.on('close', () => {
-      console.log('Client disconnected');
+      console.log('Client close event');
+      clearInterval(heartbeat);
       mcpServer.close?.();
     });
     
     req.on('error', (error) => {
-      console.error('Connection error:', error);
+      console.error('Connection error:', error.message);
+      clearInterval(heartbeat);
       mcpServer.close?.();
     });
     
   } catch (error) {
-    console.error('✗ MCP SSE setup failed:', error);
+    console.error('✗ Setup failed:', error);
     if (!res.headersSent) {
       res.status(500).end();
     }
   }
+});
+
+// Log POST to /messages
+app.post('/messages', (req, res) => {
+  console.log('POST /messages received:', JSON.stringify(req.body, null, 2));
+  res.status(200).json({ received: true });
 });
 
 app.listen(PORT, () => {

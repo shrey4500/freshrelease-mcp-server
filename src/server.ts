@@ -1,6 +1,6 @@
 import express from 'express';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamTransport } from "@modelcontextprotocol/sdk/server/streamable.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,7 +31,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/',
-      mcp_http: '/mcp',
+      mcp_sse: '/sse',
       tools_list: '/tools',
       tools_call: '/tools/call'
     }
@@ -114,62 +114,29 @@ app.post('/tools/call', async (req, res) => {
   }
 });
 
-// HTTP Streamable endpoint for MCP
-app.post('/mcp', async (req, res) => {
-  console.log('MCP HTTP request received:', JSON.stringify(req.body));
+app.get('/sse', async (req, res) => {
+  console.log('SSE connection established');
+  
+  req.socket.setTimeout(0);
+  req.socket.setNoDelay(true);
+  req.socket.setKeepAlive(true);
+  
+  const transport = new SSEServerTransport('/messages', res);
   
   try {
-    // Create a readable stream from the request body
-    const { Readable, Writable } = await import('stream');
-    
-    const requestStream = new Readable({
-      read() {
-        this.push(JSON.stringify(req.body));
-        this.push(null);
-      }
-    });
-    
-    // Create a writable stream for the response
-    let responseData = '';
-    const responseStream = new Writable({
-      write(chunk, encoding, callback) {
-        responseData += chunk.toString();
-        callback();
-      }
-    });
-    
-    // Create transport
-    const transport = new StreamTransport(requestStream, responseStream);
-    
-    // Create and connect MCP server
     const createServerModule = await import('./index.js');
     const mcpServer = createServerModule.default({ config: { apiToken: API_TOKEN } });
     
     await mcpServer.connect(transport);
-    console.log('MCP server connected for HTTP request');
-    
-    // Wait for response to be written
-    await new Promise((resolve) => {
-      responseStream.on('finish', resolve);
-      setTimeout(resolve, 5000); // 5 second timeout
-    });
-    
-    // Send response
-    res.setHeader('Content-Type', 'application/json');
-    res.send(responseData);
-    
-    // Cleanup
-    mcpServer.close?.();
-    
+    console.log('MCP server connected via SSE');
   } catch (error) {
-    console.error('MCP HTTP error:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    console.error('Failed to connect MCP server:', error);
   }
 });
 
 app.listen(PORT, () => {
   console.log(`Freshrelease MCP Server running on port ${PORT}`);
   console.log(`Health: http://localhost:${PORT}/`);
-  console.log(`MCP HTTP: http://localhost:${PORT}/mcp`);
+  console.log(`MCP SSE: http://localhost:${PORT}/sse`);
   console.log(`REST API: http://localhost:${PORT}/tools`);
 });

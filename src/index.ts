@@ -12,6 +12,35 @@ export const configSchema = z.object({
   apiToken: z.string().describe("Freshrelease API Token"),
 });
 
+// Helper function to get issue ID from issue key
+async function getIssueIdFromKey(issue_key: string, apiToken: string) {
+  const headers = {
+    "Authorization": `Token ${apiToken}`,
+    "Content-Type": "application/json",
+  };
+  
+  console.log(`Fetching issue ID for: ${issue_key}`);
+  
+  const issueResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+    method: "GET",
+    headers,
+  });
+  
+  if (!issueResponse.ok) {
+    throw new Error(`Issue ${issue_key} not found`);
+  }
+  
+  const issueData: any = await issueResponse.json();
+  const issue_id = issueData?.issue?.id;
+  
+  if (!issue_id) {
+    throw new Error("Could not extract issue ID from response");
+  }
+  
+  console.log(`Found issue ID: ${issue_id}`);
+  return issue_id;
+}
+
 export default function createServer({ config }: { config: z.infer<typeof configSchema> }) {
   const server = new Server(
     {
@@ -67,7 +96,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
         },
         {
           name: "freshrelease_get_issue_types",
-          description: "Get all issue types available in the Freshrelease project (e.g., Epic, Story, Task, Bug). Use this when asked about available issue types or what types of tickets can be created.",
+          description: "Get all issue types available in the Freshrelease project (e.g., Epic, Story, Task, Bug). Use this when asked about available issue types or what types of tickets can be created. Useful for finding the correct issue_type_id when creating issues.",
           inputSchema: {
             type: "object",
             properties: {},
@@ -75,7 +104,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
         },
         {
           name: "freshrelease_create_issue",
-          description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. Requires title, description, and issue type.",
+          description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. By default, creates a Task unless a different issue_type_id is specified. Returns the created issue including its key (e.g., FBOTS-51119).",
           inputSchema: {
             type: "object",
             properties: {
@@ -85,11 +114,11 @@ export default function createServer({ config }: { config: z.infer<typeof config
               },
               description: { 
                 type: "string", 
-                description: "Detailed description of the issue. Can include HTML formatting." 
+                description: "Detailed description of the issue. Can include HTML formatting. Optional." 
               },
               issue_type_id: { 
                 type: "string", 
-                description: "The ID of the issue type (e.g., '14' for Task, '11' for Epic). Use freshrelease_get_issue_types to find valid IDs." 
+                description: "The ID of the issue type. Defaults to '14' (Task) if not specified. Use freshrelease_get_issue_types to find other valid IDs like '11' for Epic, etc. Optional." 
               },
               owner_id: { 
                 type: "string", 
@@ -104,7 +133,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
                 description: "Status ID for the issue. Optional." 
               },
             },
-            required: ["title", "issue_type_id"],
+            required: ["title"],
           },
         },
         {
@@ -143,34 +172,34 @@ export default function createServer({ config }: { config: z.infer<typeof config
         },
         {
           name: "freshrelease_add_comment",
-          description: "Add a comment to an existing Freshrelease issue. Use this when asked to comment on, reply to, or add notes to a ticket.",
+          description: "Add a comment to a Freshrelease issue using the issue key (e.g., FBOTS-51117). This automatically fetches the issue ID and adds the comment. Use this when asked to comment on, reply to, or add notes to a ticket.",
           inputSchema: {
             type: "object",
             properties: {
-              issue_id: { 
+              issue_key: { 
                 type: "string", 
-                description: "The numeric issue ID (e.g., 2563487) or issue key (e.g., FBOTS-46821). Required." 
+                description: "The Freshrelease issue key (e.g., FBOTS-51117, FBOTS-46821). Required." 
               },
               content: { 
                 type: "string", 
                 description: "The comment text to add. Can include HTML formatting. Required." 
               },
             },
-            required: ["issue_id", "content"],
+            required: ["issue_key", "content"],
           },
         },
         {
           name: "freshrelease_get_comments",
-          description: "Get all comments on a Freshrelease issue. Use this when asked to show comments, read discussion, or see what was said on a ticket.",
+          description: "Get all comments on a Freshrelease issue using the issue key (e.g., FBOTS-51117). This automatically fetches the issue ID and retrieves all comments. Use this when asked to show comments, read discussion, or see what was said on a ticket.",
           inputSchema: {
             type: "object",
             properties: {
-              issue_id: { 
+              issue_key: { 
                 type: "string", 
-                description: "The numeric issue ID (e.g., 2563487) or issue key (e.g., FBOTS-46821). Required." 
+                description: "The Freshrelease issue key (e.g., FBOTS-51117, FBOTS-46821). Required." 
               },
             },
-            required: ["issue_id"],
+            required: ["issue_key"],
           },
         },
       ],
@@ -239,16 +268,20 @@ export default function createServer({ config }: { config: z.infer<typeof config
 
         case "freshrelease_create_issue": {
           const { title, description, issue_type_id, owner_id, priority_id, status_id } = (args as any) || {};
-          if (!title || !issue_type_id) {
-            throw new Error("title and issue_type_id are required");
+          if (!title) {
+            throw new Error("title is required");
           }
-          console.log(`Creating issue: ${title}`);
+          
+          // Default to Task (ID: 14) if not specified
+          const typeId = issue_type_id || "14";
+          console.log(`Creating issue: ${title} (Type ID: ${typeId})`);
+          
           const payload = {
             issue: {
               title,
               description: description || "",
               key: PROJECT_KEY,
-              issue_type_id,
+              issue_type_id: typeId,
               project_id: "280",
               owner_id: owner_id || null,
               priority_id: priority_id || null,
@@ -261,7 +294,11 @@ export default function createServer({ config }: { config: z.infer<typeof config
             body: JSON.stringify(payload),
           });
           const data = await response.json();
-          console.log('✓ Issue created successfully');
+          
+          // Extract and log the issue key
+          const createdKey = (data as any)?.issue?.key || 'N/A';
+          console.log(`✓ Issue created successfully with key: ${createdKey}`);
+          
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 
@@ -289,34 +326,63 @@ export default function createServer({ config }: { config: z.infer<typeof config
         }
 
         case "freshrelease_add_comment": {
-          const { issue_id, content } = (args as any) || {};
-          if (!issue_id || !content) {
-            throw new Error("issue_id and content are required");
+          const { issue_key, content } = (args as any) || {};
+          if (!issue_key || !content) {
+            throw new Error("issue_key and content are required");
           }
-          console.log(`Adding comment to issue: ${issue_id}`);
+          
+          console.log('Step 1: Fetching issue ID');
+          const issue_id = await getIssueIdFromKey(issue_key, config.apiToken);
+          
+          console.log(`Step 2: Adding comment to issue ID: ${issue_id}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
             method: "POST",
             headers,
             body: JSON.stringify({ content }),
           });
-          const data = await response.json();
+          const commentData = await response.json();
           console.log('✓ Comment added successfully');
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          
+          return { 
+            content: [{ 
+              type: "text", 
+              text: JSON.stringify({
+                success: true,
+                issue_key,
+                issue_id,
+                comment: commentData
+              }, null, 2) 
+            }] 
+          };
         }
 
         case "freshrelease_get_comments": {
-          const { issue_id } = (args as any) || {};
-          if (!issue_id) {
-            throw new Error("issue_id is required");
+          const { issue_key } = (args as any) || {};
+          if (!issue_key) {
+            throw new Error("issue_key is required");
           }
-          console.log(`Fetching comments for issue: ${issue_id}`);
+          
+          console.log('Step 1: Fetching issue ID');
+          const issue_id = await getIssueIdFromKey(issue_key, config.apiToken);
+          
+          console.log(`Step 2: Fetching comments for issue ID: ${issue_id}`);
           const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
             method: "GET",
             headers,
           });
-          const data = await response.json();
+          const commentsData = await response.json();
           console.log('✓ Comments fetched successfully');
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+          
+          return { 
+            content: [{ 
+              type: "text", 
+              text: JSON.stringify({
+                issue_key,
+                issue_id,
+                comments: commentsData
+              }, null, 2) 
+            }] 
+          };
         }
 
         default:

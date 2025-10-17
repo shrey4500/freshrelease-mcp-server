@@ -293,10 +293,10 @@ export default function createServer({ config }: { config: z.infer<typeof config
             headers,
             body: JSON.stringify(payload),
           });
-          const data = await response.json();
+          const data: any = await response.json();
           
           // Extract and log the issue key
-          const createdKey = (data as any)?.issue?.key || 'N/A';
+          const createdKey = data?.issue?.key || 'N/A';
           console.log(`✓ Issue created successfully with key: ${createdKey}`);
           
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };

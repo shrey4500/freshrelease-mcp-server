@@ -296,7 +296,7 @@ app.post('/tools/call', async (req, res) => {
     };
 
     let response;
-    let data;
+    let data: any;
 
     switch (name) {
       case "freshrelease_get_users": {
@@ -538,7 +538,7 @@ app.post('/mcp', async (req, res) => {
 
         let content;
         let apiResponse;
-        let apiData;
+        let apiData: any;
         
         switch (name) {
           case "freshrelease_add_comment": {

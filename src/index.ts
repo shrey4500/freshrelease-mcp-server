@@ -25,10 +25,9 @@ export default function createServer({ config }: { config: z.infer<typeof config
     }
   );
 
-  // Log when tools are listed
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     console.log('📋 Client requested tools list');
-    const tools = {
+    return {
       tools: [
         {
           name: "freshrelease_get_users",
@@ -58,16 +57,129 @@ export default function createServer({ config }: { config: z.infer<typeof config
             required: ["issue_key"],
           },
         },
+        {
+          name: "freshrelease_get_statuses",
+          description: "Get all statuses available in the Freshrelease project. Use this when asked about available statuses, workflow states, or what status values are possible.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+        {
+          name: "freshrelease_get_issue_types",
+          description: "Get all issue types available in the Freshrelease project (e.g., Epic, Story, Task, Bug). Use this when asked about available issue types or what types of tickets can be created.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+        {
+          name: "freshrelease_create_issue",
+          description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. Requires title, description, and issue type.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { 
+                type: "string", 
+                description: "The title/summary of the issue. Required." 
+              },
+              description: { 
+                type: "string", 
+                description: "Detailed description of the issue. Can include HTML formatting." 
+              },
+              issue_type_id: { 
+                type: "string", 
+                description: "The ID of the issue type (e.g., '14' for Task, '11' for Epic). Use freshrelease_get_issue_types to find valid IDs." 
+              },
+              owner_id: { 
+                type: "string", 
+                description: "User ID of the person assigned to this issue. Optional." 
+              },
+              priority_id: { 
+                type: "string", 
+                description: "Priority ID for the issue. Optional." 
+              },
+              status_id: { 
+                type: "string", 
+                description: "Status ID for the issue. Optional." 
+              },
+            },
+            required: ["title", "issue_type_id"],
+          },
+        },
+        {
+          name: "freshrelease_update_issue",
+          description: "Update an existing issue in Freshrelease. Use this when asked to update, modify, change, or edit a ticket. You can update title, description, status, assignee, priority, custom fields, etc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              issue_key: { 
+                type: "string", 
+                description: "The issue key to update (e.g., FBOTS-46821). Required." 
+              },
+              title: { 
+                type: "string", 
+                description: "New title for the issue. Optional." 
+              },
+              description: { 
+                type: "string", 
+                description: "New description for the issue. Optional." 
+              },
+              status_id: { 
+                type: "string", 
+                description: "New status ID. Optional." 
+              },
+              owner_id: { 
+                type: "string", 
+                description: "New owner/assignee user ID. Optional." 
+              },
+              priority_id: { 
+                type: "string", 
+                description: "New priority ID. Optional." 
+              },
+            },
+            required: ["issue_key"],
+          },
+        },
+        {
+          name: "freshrelease_add_comment",
+          description: "Add a comment to an existing Freshrelease issue. Use this when asked to comment on, reply to, or add notes to a ticket.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              issue_id: { 
+                type: "string", 
+                description: "The numeric issue ID (e.g., 2563487) or issue key (e.g., FBOTS-46821). Required." 
+              },
+              content: { 
+                type: "string", 
+                description: "The comment text to add. Can include HTML formatting. Required." 
+              },
+            },
+            required: ["issue_id", "content"],
+          },
+        },
+        {
+          name: "freshrelease_get_comments",
+          description: "Get all comments on a Freshrelease issue. Use this when asked to show comments, read discussion, or see what was said on a ticket.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              issue_id: { 
+                type: "string", 
+                description: "The numeric issue ID (e.g., 2563487) or issue key (e.g., FBOTS-46821). Required." 
+              },
+            },
+            required: ["issue_id"],
+          },
+        },
       ],
     };
-    console.log('✓ Returning tools:', JSON.stringify(tools, null, 2));
-    return tools;
   });
 
-  // Log when tools are called
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    console.log(`🔧 Tool called: ${name}`, JSON.stringify(args, null, 2));
+    console.log(`🔧 Tool called: ${name}`);
 
     const headers: Record<string, string> = {
       "Authorization": `Token ${config.apiToken}`,
@@ -100,6 +212,110 @@ export default function createServer({ config }: { config: z.infer<typeof config
           });
           const data = await response.json();
           console.log('✓ Issue fetched successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_get_statuses": {
+          console.log('Fetching statuses');
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/statuses`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          console.log('✓ Statuses fetched successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_get_issue_types": {
+          console.log('Fetching issue types');
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issue_types`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          console.log('✓ Issue types fetched successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_create_issue": {
+          const { title, description, issue_type_id, owner_id, priority_id, status_id } = (args as any) || {};
+          if (!title || !issue_type_id) {
+            throw new Error("title and issue_type_id are required");
+          }
+          console.log(`Creating issue: ${title}`);
+          const payload = {
+            issue: {
+              title,
+              description: description || "",
+              key: PROJECT_KEY,
+              issue_type_id,
+              project_id: "280",
+              owner_id: owner_id || null,
+              priority_id: priority_id || null,
+              status_id: status_id || null,
+            }
+          };
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          console.log('✓ Issue created successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_update_issue": {
+          const { issue_key, title, description, status_id, owner_id, priority_id } = (args as any) || {};
+          if (!issue_key) {
+            throw new Error("issue_key is required");
+          }
+          console.log(`Updating issue: ${issue_key}`);
+          const updatePayload: any = { issue: { key: issue_key } };
+          if (title) updatePayload.issue.title = title;
+          if (description) updatePayload.issue.description = description;
+          if (status_id) updatePayload.issue.status_id = status_id;
+          if (owner_id) updatePayload.issue.owner_id = owner_id;
+          if (priority_id) updatePayload.issue.priority_id = priority_id;
+          
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(updatePayload),
+          });
+          const data = await response.json();
+          console.log('✓ Issue updated successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_add_comment": {
+          const { issue_id, content } = (args as any) || {};
+          if (!issue_id || !content) {
+            throw new Error("issue_id and content are required");
+          }
+          console.log(`Adding comment to issue: ${issue_id}`);
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ content }),
+          });
+          const data = await response.json();
+          console.log('✓ Comment added successfully');
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }
+
+        case "freshrelease_get_comments": {
+          const { issue_id } = (args as any) || {};
+          if (!issue_id) {
+            throw new Error("issue_id is required");
+          }
+          console.log(`Fetching comments for issue: ${issue_id}`);
+          const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
+            method: "GET",
+            headers,
+          });
+          const data = await response.json();
+          console.log('✓ Comments fetched successfully');
           return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
         }
 

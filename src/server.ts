@@ -50,7 +50,7 @@ app.get('/', (req, res) => {
 const TOOLS_DEFINITION = [
   {
     name: "freshrelease_get_users",
-    description: "Get all users in the Freshrelease project. Use this tool when asked about team members, users, or people in Freshrelease.",
+    description: "Get all users in the Freshrelease project. Use this tool when asked about team members, users, or people in Freshrelease. Returns basic user information for a specific page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -60,6 +60,20 @@ const TOOLS_DEFINITION = [
           default: 1 
         },
       },
+    },
+  },
+  {
+    name: "freshrelease_search_user_by_name",
+    description: "Search for a Freshrelease user by name or email and return their user ID. Use this when you need to find a user's ID to assign them to an issue. Automatically searches across all pages. Returns the user's ID, name, and email if found.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { 
+          type: "string", 
+          description: "The name or email of the user to search for (e.g., 'Alkaffkhan', 'John Doe', 'john@example.com'). Case-insensitive partial match." 
+        },
+      },
+      required: ["name"],
     },
   },
   {
@@ -94,7 +108,7 @@ const TOOLS_DEFINITION = [
   },
   {
     name: "freshrelease_create_issue",
-    description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. By default, creates a Task unless a different issue_type_id is specified. Returns the created issue including its key (e.g., FBOTS-51119).",
+    description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. By default, creates a Task unless a different issue_type_id is specified. To assign to a user, use freshrelease_search_user_by_name to find their ID first. Returns the created issue including its key (e.g., FBOTS-51119).",
     inputSchema: {
       type: "object",
       properties: {
@@ -112,7 +126,7 @@ const TOOLS_DEFINITION = [
         },
         owner_id: { 
           type: "string", 
-          description: "User ID of the person assigned to this issue. Optional." 
+          description: "User ID of the person assigned to this issue. Use freshrelease_search_user_by_name to find the user ID by name first. Optional." 
         },
         priority_id: { 
           type: "string", 
@@ -128,7 +142,7 @@ const TOOLS_DEFINITION = [
   },
   {
     name: "freshrelease_update_issue",
-    description: "Update an existing issue in Freshrelease. Use this when asked to update, modify, change, or edit a ticket. You can update title, description, status, assignee, priority, custom fields, etc.",
+    description: "Update an existing issue in Freshrelease. Use this when asked to update, modify, change, assign, or edit a ticket. To assign to a user by name, first use freshrelease_search_user_by_name to find their user ID, then use that ID in the owner_id parameter. You can update title, description, status, assignee, priority, custom fields, etc.",
     inputSchema: {
       type: "object",
       properties: {
@@ -150,7 +164,7 @@ const TOOLS_DEFINITION = [
         },
         owner_id: { 
           type: "string", 
-          description: "New owner/assignee user ID. Optional." 
+          description: "New owner/assignee user ID. Use freshrelease_search_user_by_name to find the user ID by name first. Optional." 
         },
         priority_id: { 
           type: "string", 
@@ -278,6 +292,64 @@ async function getCommentsByKey(issue_key: string, headers: Record<string, strin
   };
 }
 
+// Helper function to search user by name across all pages
+async function searchUserByName(searchName: string, headers: Record<string, string>) {
+  const BASE_URL = "https://freshworks.freshrelease.com";
+  const PROJECT_KEY = "FBOTS";
+  
+  console.log(`  → Searching for user: ${searchName}`);
+  
+  let allUsers: any[] = [];
+  let page = 1;
+  const maxPages = 10; // Safety limit
+  
+  while (page <= maxPages) {
+    console.log(`  → Fetching users page ${page}`);
+    const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+      method: "GET",
+      headers,
+    });
+    
+    if (!response.ok) break;
+    
+    const data: any = await response.json();
+    const users = data.users || [];
+    
+    if (users.length === 0) break;
+    
+    allUsers = allUsers.concat(users);
+    console.log(`  → Page ${page}: ${users.length} users fetched`);
+    page++;
+  }
+  
+  console.log(`  ✅ Total users fetched: ${allUsers.length}`);
+  
+  // Search for user by name or email (case-insensitive)
+  const searchLower = searchName.toLowerCase();
+  const matchedUser = allUsers.find((u: any) => 
+    u.name?.toLowerCase().includes(searchLower) ||
+    u.email?.toLowerCase().includes(searchLower)
+  );
+  
+  if (matchedUser) {
+    console.log(`  ✅ Found user: ${matchedUser.name} (ID: ${matchedUser.id})`);
+    return {
+      found: true,
+      user: {
+        id: matchedUser.id,
+        name: matchedUser.name,
+        email: matchedUser.email
+      }
+    };
+  } else {
+    console.log(`  ❌ User not found: ${searchName}`);
+    return {
+      found: false,
+      searched_name: searchName
+    };
+  }
+}
+
 app.post('/tools/call', async (req, res) => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🔨 DIRECT REST TOOL CALL (Non-MCP)');
@@ -310,6 +382,18 @@ app.post('/tools/call', async (req, res) => {
         data = await response.json();
         console.log(`  ✅ Users data retrieved`);
         res.json({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
+        break;
+      }
+
+      case "freshrelease_search_user_by_name": {
+        const { name: searchName } = args || {};
+        if (!searchName) {
+          console.log('  ❌ Missing name parameter');
+          return res.status(400).json({ error: "name is required" });
+        }
+        
+        const result = await searchUserByName(searchName, headers);
+        res.json({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
         break;
       }
 
@@ -373,11 +457,11 @@ app.post('/tools/call', async (req, res) => {
             title,
             description: description || "",
             key: PROJECT_KEY,
-            issue_type_id: typeId,
-            project_id: "280",
-            owner_id: owner_id || null,
-            priority_id: priority_id || null,
-            status_id: status_id || null,
+            issue_type_id: parseInt(typeId),
+            project_id: 280,
+            owner_id: owner_id ? parseInt(owner_id) : null,
+            priority_id: priority_id ? parseInt(priority_id) : null,
+            status_id: status_id ? parseInt(status_id) : null,
           }
         };
         response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues`, {
@@ -406,9 +490,9 @@ app.post('/tools/call', async (req, res) => {
         const updatePayload: any = { issue: { key: issue_key } };
         if (title) updatePayload.issue.title = title;
         if (description) updatePayload.issue.description = description;
-        if (status_id) updatePayload.issue.status_id = status_id;
-        if (owner_id) updatePayload.issue.owner_id = owner_id;
-        if (priority_id) updatePayload.issue.priority_id = priority_id;
+        if (status_id) updatePayload.issue.status_id = parseInt(status_id);
+        if (owner_id) updatePayload.issue.owner_id = parseInt(owner_id);
+        if (priority_id) updatePayload.issue.priority_id = parseInt(priority_id);
         
         response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
           method: "PUT",
@@ -541,6 +625,13 @@ app.post('/mcp', async (req, res) => {
         let apiData: any;
         
         switch (name) {
+          case "freshrelease_search_user_by_name": {
+            const { name: searchName } = args || {};
+            const result = await searchUserByName(searchName, headers);
+            content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+            break;
+          }
+
           case "freshrelease_add_comment": {
             const { issue_key, content: commentContent } = args || {};
             const result = await addCommentByKey(issue_key, commentContent, headers);
@@ -635,11 +726,11 @@ app.post('/mcp', async (req, res) => {
                 title,
                 description: description || "",
                 key: PROJECT_KEY,
-                issue_type_id: typeId,
-                project_id: "280",
-                owner_id: owner_id || null,
-                priority_id: priority_id || null,
-                status_id: status_id || null,
+                issue_type_id: parseInt(typeId),
+                project_id: 280,
+                owner_id: owner_id ? parseInt(owner_id) : null,
+                priority_id: priority_id ? parseInt(priority_id) : null,
+                status_id: status_id ? parseInt(status_id) : null,
               }
             };
             apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues`, {
@@ -664,9 +755,9 @@ app.post('/mcp', async (req, res) => {
             const updatePayload: any = { issue: { key: issue_key } };
             if (title) updatePayload.issue.title = title;
             if (description) updatePayload.issue.description = description;
-            if (status_id) updatePayload.issue.status_id = status_id;
-            if (owner_id) updatePayload.issue.owner_id = owner_id;
-            if (priority_id) updatePayload.issue.priority_id = priority_id;
+            if (status_id) updatePayload.issue.status_id = parseInt(status_id);
+            if (owner_id) updatePayload.issue.owner_id = parseInt(owner_id);
+            if (priority_id) updatePayload.issue.priority_id = parseInt(priority_id);
             
             apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
               method: "PUT",
@@ -747,8 +838,10 @@ app.listen(PORT, () => {
   console.log(`   📊 Total Tools: ${TOOLS_DEFINITION.length}`);
   console.log('   ✨ Smart Features:');
   console.log('      - Auto-fetch issue ID from key');
+  console.log('      - Search users by name across all pages');
   console.log('      - Default Task creation (Type ID: 14)');
   console.log('      - Returns issue keys in responses');
+  console.log('      - Numeric ID conversions for API compatibility');
   console.log('═══════════════════════════════════════════');
   console.log('');
 });

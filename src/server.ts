@@ -153,7 +153,7 @@ const TOOLS_DEFINITION = [
         },
         issue_type_id: { 
           type: "string", 
-          description: "The ID of the issue type. Defaults to '14' (Task). Use freshrelease_get_issue_types first to find valid IDs." 
+          description: "The ID of the issue type. Use freshrelease_get_issue_types to get a valid issue ID first." 
         },
         owner_id: { 
           type: "string", 

@@ -108,22 +108,6 @@ function extractProjectKey(issue_key: string): string {
   return parts[0];
 }
 
-// Helper to get project ID based on project key
-function getProjectId(project_key: string): number {
-  // Map of known project keys to their IDs
-  // You can expand this mapping as needed
-  const projectMap: Record<string, number> = {
-    "FBOTS": 280,
-    "AB1": 100,  // Replace with actual ID
-    "FD": 101,   // Replace with actual ID
-    "FC": 102,   // Replace with actual ID
-    "NEOROAD": 103, // Replace with actual ID
-    // Add more projects as needed
-  };
-  
-  return projectMap[project_key] || 280; // Default to FBOTS if not found
-}
-
 export default function createServer({ config }: { config: z.infer<typeof configSchema> }) {
   const server = new Server(
     {
@@ -458,7 +442,6 @@ export default function createServer({ config }: { config: z.infer<typeof config
           
           // Default to Task (ID: 14) if not specified
           const typeId = issue_type_id || "14";
-          const projectId = getProjectId(project_key);
           console.log(`Creating issue in project ${project_key}: ${title} (Type ID: ${typeId})`);
           
           const payload = {
@@ -467,7 +450,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
               description: description || "",
               key: project_key,
               issue_type_id: parseInt(typeId),
-              project_id: projectId,
+              // Removed project_id - API uses key to determine project
               owner_id: owner_id ? parseInt(owner_id) : null,
               priority_id: priority_id ? parseInt(priority_id) : null,
               status_id: status_id ? parseInt(status_id) : null,

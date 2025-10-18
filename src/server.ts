@@ -54,19 +54,6 @@ function extractProjectKey(issue_key: string): string {
   return parts[0];
 }
 
-// Helper to get project ID based on project key
-function getProjectId(project_key: string): number {
-  const projectMap: Record<string, number> = {
-    "FBOTS": 280,
-    "AB1": 100,  // Replace with actual ID
-    "FD": 101,   // Replace with actual ID
-    "FC": 102,   // Replace with actual ID
-    "NEOROAD": 103, // Replace with actual ID
-  };
-  
-  return projectMap[project_key] || 280;
-}
-
 const TOOLS_DEFINITION = [
   {
     name: "freshrelease_get_users",
@@ -490,7 +477,6 @@ app.post('/tools/call', async (req, res) => {
         }
         
         const typeId = issue_type_id || "14";
-        const projectId = getProjectId(project_key);
         console.log(`  → Creating issue in project ${project_key}: ${title} (Type ID: ${typeId})`);
         
         const payload = {
@@ -499,7 +485,7 @@ app.post('/tools/call', async (req, res) => {
             description: description || "",
             key: project_key,
             issue_type_id: parseInt(typeId),
-            project_id: projectId,
+            // Removed project_id - API uses key to determine project
             owner_id: owner_id ? parseInt(owner_id) : null,
             priority_id: priority_id ? parseInt(priority_id) : null,
             status_id: status_id ? parseInt(status_id) : null,
@@ -847,7 +833,6 @@ app.post('/mcp', async (req, res) => {
             const { title, description, issue_type_id, owner_id, priority_id, status_id, project_key = "FBOTS" } = args || {};
             
             const typeId = issue_type_id || "14";
-            const projectId = getProjectId(project_key);
             console.log(`📡 Creating: ${title} in project ${project_key} (Type ID: ${typeId})`);
             
             const payload = {
@@ -856,7 +841,7 @@ app.post('/mcp', async (req, res) => {
                 description: description || "",
                 key: project_key,
                 issue_type_id: parseInt(typeId),
-                project_id: projectId,
+                // Removed project_id - API uses key to determine project
                 owner_id: owner_id ? parseInt(owner_id) : null,
                 priority_id: priority_id ? parseInt(priority_id) : null,
                 status_id: status_id ? parseInt(status_id) : null,

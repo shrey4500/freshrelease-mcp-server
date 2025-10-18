@@ -204,7 +204,7 @@ export default function createServer({ config }: { config: z.infer<typeof config
         },
         {
           name: "freshrelease_create_issue",
-          description: "Create a new issue/ticket in Freshrelease. By default, creates a Task (ID: 14) unless specified. To change issue type, first use freshrelease_get_issue_types to find the correct issue_type_id.",
+          description: "Create a new issue/ticket in Freshrelease.",
           inputSchema: {
             type: "object",
             properties: {

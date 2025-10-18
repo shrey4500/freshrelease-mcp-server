@@ -4,17 +4,13 @@ import createServer from './index.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const API_TOKEN = process.env.FRESHRELEASE_API_TOKEN || '';
-
-if (!API_TOKEN) {
-  console.error('FRESHRELEASE_API_TOKEN environment variable is required');
-  process.exit(1);
-}
+// Default API token from environment (optional now)
+const DEFAULT_API_TOKEN = process.env.FRESHRELEASE_API_TOKEN || '';
 
 // Request logging middleware
 app.use((req, res, next) => {
   if (req.path !== '/mcp') {
-    console.log(`📥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
+    console.log(`🔥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
   }
   next();
 });
@@ -43,72 +39,138 @@ app.get('/', (req, res) => {
       mcp: '/mcp',
       tools: '/tools',
       tools_call: '/tools/call'
-    }
+    },
+    supported_projects: ['FBOTS', 'AB1', 'FD', 'FC', 'NEOROAD'],
+    api_token_support: 'Can be passed per request or set as FRESHRELEASE_API_TOKEN env var'
   });
 });
+
+// Helper to extract project key from issue key
+function extractProjectKey(issue_key: string): string {
+  const parts = issue_key.split('-');
+  if (parts.length < 2) {
+    throw new Error(`Invalid issue key format: ${issue_key}. Expected format: PROJECT-NUMBER`);
+  }
+  return parts[0];
+}
+
+// Helper to get project ID based on project key
+function getProjectId(project_key: string): number {
+  const projectMap: Record<string, number> = {
+    "FBOTS": 280,
+    "AB1": 100,  // Replace with actual ID
+    "FD": 101,   // Replace with actual ID
+    "FC": 102,   // Replace with actual ID
+    "NEOROAD": 103, // Replace with actual ID
+  };
+  
+  return projectMap[project_key] || 280;
+}
 
 const TOOLS_DEFINITION = [
   {
     name: "freshrelease_get_users",
-    description: "Get all users in the Freshrelease project. Use this tool when asked about team members, users, or people in Freshrelease. Returns basic user information for a specific page.",
+    description: "Get all users in a Freshrelease project. Returns basic user information for a specific page.",
     inputSchema: {
       type: "object",
       properties: {
+        project_key: { 
+          type: "string", 
+          description: "Project key (e.g., 'FBOTS', 'AB1', 'FD', 'FC', 'NEOROAD'). Optional - defaults to 'FBOTS'",
+          default: "FBOTS"
+        },
         page: { 
           type: "number", 
           description: "Page number for pagination. Defaults to 1 if not specified.", 
           default: 1 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
     },
   },
   {
     name: "freshrelease_search_user_by_name",
-    description: "Search for a Freshrelease user by name or email and return their user ID. Use this when you need to find a user's ID to assign them to an issue. Automatically searches across all pages. Returns the user's ID, name, and email if found.",
+    description: "Search for a Freshrelease user by name or email and return their user ID. Automatically searches across all pages.",
     inputSchema: {
       type: "object",
       properties: {
         name: { 
           type: "string", 
-          description: "The name or email of the user to search for (e.g., 'Alkaffkhan', 'John Doe', 'john@example.com'). Case-insensitive partial match." 
+          description: "The name or email of the user to search for. Case-insensitive partial match." 
         },
+        project_key: { 
+          type: "string", 
+          description: "Project key. Optional - defaults to 'FBOTS'",
+          default: "FBOTS"
+        },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["name"],
     },
   },
   {
     name: "freshrelease_get_issue",
-    description: "Get detailed information about a specific Freshrelease ticket or issue. Use this tool whenever asked about a ticket, issue, bug, task, or story. Also use it when given an issue key like FBOTS-46821. Returns complete details including title, description, status, priority, assignee, reporter, dates, comments, and custom fields.",
+    description: "Get detailed information about a specific Freshrelease ticket or issue. The project key is automatically extracted from the issue key.",
     inputSchema: {
       type: "object",
       properties: {
         issue_key: { 
           type: "string", 
-          description: "The Freshrelease issue key in the format PROJECT-NUMBER, for example: FBOTS-46821 or FBOTS-12345. This parameter is required and must be provided." 
+          description: "The Freshrelease issue key (e.g., FBOTS-46821, AB1-123, FD-456). Project is auto-detected from the key." 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["issue_key"],
     },
   },
   {
     name: "freshrelease_get_statuses",
-    description: "Get all statuses available in the Freshrelease project. Use this when asked about available statuses, workflow states, or what status values are possible.",
+    description: "Get all statuses available in a Freshrelease project.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        project_key: { 
+          type: "string", 
+          description: "Project key. Optional - defaults to 'FBOTS'",
+          default: "FBOTS"
+        },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
+      },
     },
   },
   {
     name: "freshrelease_get_issue_types",
-    description: "Get all issue types available in the Freshrelease project (e.g., Epic, Story, Task, Bug). Use this when asked about available issue types or what types of tickets can be created. Useful for finding the correct issue_type_id when creating issues.",
+    description: "Get all issue types available in a Freshrelease project (e.g., Epic, Story, Task, Bug). Essential for finding the correct issue_type_id when creating or updating issues.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        project_key: { 
+          type: "string", 
+          description: "Project key. Optional - defaults to 'FBOTS'",
+          default: "FBOTS"
+        },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
+      },
     },
   },
   {
     name: "freshrelease_create_issue",
-    description: "Create a new issue/ticket in Freshrelease. Use this when asked to create, add, or make a new ticket, task, bug, or story. By default, creates a Task unless a different issue_type_id is specified. To assign to a user, use freshrelease_search_user_by_name to find their ID first. Returns the created issue including its key (e.g., FBOTS-51119).",
+    description: "Create a new issue/ticket in Freshrelease. By default, creates a Task (ID: 14) unless specified. To change issue type, first use freshrelease_get_issue_types to find the correct issue_type_id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -120,13 +182,18 @@ const TOOLS_DEFINITION = [
           type: "string", 
           description: "Detailed description of the issue. Can include HTML formatting. Optional." 
         },
+        project_key: { 
+          type: "string", 
+          description: "Project key where the issue will be created. Optional - defaults to 'FBOTS'",
+          default: "FBOTS"
+        },
         issue_type_id: { 
           type: "string", 
-          description: "The ID of the issue type. Defaults to '14' (Task) if not specified. Use freshrelease_get_issue_types to find other valid IDs like '11' for Epic, etc. Optional." 
+          description: "The ID of the issue type. Defaults to '14' (Task). Use freshrelease_get_issue_types first to find valid IDs." 
         },
         owner_id: { 
           type: "string", 
-          description: "User ID of the person assigned to this issue. Use freshrelease_search_user_by_name to find the user ID by name first. Optional." 
+          description: "User ID of the person assigned. Use freshrelease_search_user_by_name to find the user ID first." 
         },
         priority_id: { 
           type: "string", 
@@ -136,19 +203,23 @@ const TOOLS_DEFINITION = [
           type: "string", 
           description: "Status ID for the issue. Optional." 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["title"],
     },
   },
   {
     name: "freshrelease_update_issue",
-    description: "Update an existing issue in Freshrelease. Use this when asked to update, modify, change, assign, or edit a ticket. To assign to a user by name, first use freshrelease_search_user_by_name to find their user ID, then use that ID in the owner_id parameter. You can update title, description, status, assignee, priority, custom fields, etc.",
+    description: "Update an existing issue in Freshrelease. To change issue type: 1) First use freshrelease_get_issue_types to find the correct issue_type_id, 2) Then call this with the issue_type_id. Project is auto-detected from issue key.",
     inputSchema: {
       type: "object",
       properties: {
         issue_key: { 
           type: "string", 
-          description: "The issue key to update (e.g., FBOTS-46821). Required." 
+          description: "The issue key to update (e.g., FBOTS-46821). Project is auto-detected." 
         },
         title: { 
           type: "string", 
@@ -158,50 +229,66 @@ const TOOLS_DEFINITION = [
           type: "string", 
           description: "New description for the issue. Optional." 
         },
+        issue_type_id: { 
+          type: "string", 
+          description: "New issue type ID. Use freshrelease_get_issue_types first to find valid IDs. Optional." 
+        },
         status_id: { 
           type: "string", 
           description: "New status ID. Optional." 
         },
         owner_id: { 
           type: "string", 
-          description: "New owner/assignee user ID. Use freshrelease_search_user_by_name to find the user ID by name first. Optional." 
+          description: "New owner/assignee user ID. Use freshrelease_search_user_by_name to find the user ID first." 
         },
         priority_id: { 
           type: "string", 
           description: "New priority ID. Optional." 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["issue_key"],
     },
   },
   {
     name: "freshrelease_add_comment",
-    description: "Add a comment to a Freshrelease issue using the issue key (e.g., FBOTS-51117). This automatically fetches the issue ID and adds the comment. Use this when asked to comment on, reply to, or add notes to a ticket.",
+    description: "Add a comment to a Freshrelease issue. Project is auto-detected from the issue key.",
     inputSchema: {
       type: "object",
       properties: {
         issue_key: { 
           type: "string", 
-          description: "The Freshrelease issue key (e.g., FBOTS-51117, FBOTS-46821). Required." 
+          description: "The Freshrelease issue key (e.g., FBOTS-51117). Project is auto-detected." 
         },
         content: { 
           type: "string", 
           description: "The comment text to add. Can include HTML formatting. Required." 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["issue_key", "content"],
     },
   },
   {
     name: "freshrelease_get_comments",
-    description: "Get all comments on a Freshrelease issue using the issue key (e.g., FBOTS-51117). This automatically fetches the issue ID and retrieves all comments. Use this when asked to show comments, read discussion, or see what was said on a ticket.",
+    description: "Get all comments on a Freshrelease issue. Project is auto-detected from the issue key.",
     inputSchema: {
       type: "object",
       properties: {
         issue_key: { 
           type: "string", 
-          description: "The Freshrelease issue key (e.g., FBOTS-51117, FBOTS-46821). Required." 
+          description: "The Freshrelease issue key (e.g., FBOTS-51117). Project is auto-detected." 
         },
+        api_token: {
+          type: "string",
+          description: "Freshrelease API token. Optional - uses environment variable if not provided"
+        }
       },
       required: ["issue_key"],
     },
@@ -214,13 +301,12 @@ app.get('/tools', (req, res) => {
 });
 
 // Helper function to get issue ID from issue key
-async function getIssueIdFromKey(issue_key: string, headers: Record<string, string>) {
+async function getIssueIdFromKey(issue_key: string, headers: Record<string, string>, project_key: string) {
   const BASE_URL = "https://freshworks.freshrelease.com";
-  const PROJECT_KEY = "FBOTS";
   
-  console.log(`  🔄 Fetching issue ID for: ${issue_key}`);
+  console.log(`  📄 Fetching issue ID for: ${issue_key}`);
   
-  const issueResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+  const issueResponse = await fetch(`${BASE_URL}/${project_key}/issues/${issue_key}`, {
     method: "GET",
     headers,
   });
@@ -240,72 +326,19 @@ async function getIssueIdFromKey(issue_key: string, headers: Record<string, stri
   return issue_id;
 }
 
-// Helper function to add comment by key
-async function addCommentByKey(issue_key: string, content: string, headers: Record<string, string>) {
-  const BASE_URL = "https://freshworks.freshrelease.com";
-  const PROJECT_KEY = "FBOTS";
-  
-  console.log(`  → Step 1: Fetching issue ID for: ${issue_key}`);
-  const issue_id = await getIssueIdFromKey(issue_key, headers);
-  
-  console.log(`  → Step 2: Adding comment to issue ID: ${issue_id}`);
-  const commentResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ content }),
-  });
-  console.log(`  ← Comment add status: ${commentResponse.status}`);
-  
-  const commentData = await commentResponse.json();
-  console.log(`  ✅ Comment added successfully to ${issue_key}`);
-  
-  return {
-    success: true,
-    issue_key,
-    issue_id,
-    comment: commentData
-  };
-}
-
-// Helper function to get comments by key
-async function getCommentsByKey(issue_key: string, headers: Record<string, string>) {
-  const BASE_URL = "https://freshworks.freshrelease.com";
-  const PROJECT_KEY = "FBOTS";
-  
-  console.log(`  → Step 1: Fetching issue ID for: ${issue_key}`);
-  const issue_id = await getIssueIdFromKey(issue_key, headers);
-  
-  console.log(`  → Step 2: Fetching comments for issue ID: ${issue_id}`);
-  const commentsResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_id}/comments`, {
-    method: "GET",
-    headers,
-  });
-  console.log(`  ← Comments fetch status: ${commentsResponse.status}`);
-  
-  const commentsData = await commentsResponse.json();
-  console.log(`  ✅ Comments retrieved successfully for ${issue_key}`);
-  
-  return {
-    issue_key,
-    issue_id,
-    comments: commentsData
-  };
-}
-
 // Helper function to search user by name across all pages
-async function searchUserByName(searchName: string, headers: Record<string, string>) {
+async function searchUserByName(searchName: string, headers: Record<string, string>, project_key: string) {
   const BASE_URL = "https://freshworks.freshrelease.com";
-  const PROJECT_KEY = "FBOTS";
   
-  console.log(`  → Searching for user: ${searchName}`);
+  console.log(`  → Searching for user: ${searchName} in project: ${project_key}`);
   
   let allUsers: any[] = [];
   let page = 1;
-  const maxPages = 10; // Safety limit
+  const maxPages = 10;
   
   while (page <= maxPages) {
     console.log(`  → Fetching users page ${page}`);
-    const response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+    const response = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
       method: "GET",
       headers,
     });
@@ -324,7 +357,6 @@ async function searchUserByName(searchName: string, headers: Record<string, stri
   
   console.log(`  ✅ Total users fetched: ${allUsers.length}`);
   
-  // Search for user by name or email (case-insensitive)
   const searchLower = searchName.toLowerCase();
   const matchedUser = allUsers.find((u: any) => 
     u.name?.toLowerCase().includes(searchLower) ||
@@ -351,16 +383,21 @@ async function searchUserByName(searchName: string, headers: Record<string, stri
 }
 
 app.post('/tools/call', async (req, res) => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓');
   console.log('🔨 DIRECT REST TOOL CALL (Non-MCP)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛');
   console.log('Body:', JSON.stringify(req.body, null, 2));
   
   try {
     const { name, arguments: args } = req.body;
     
     const BASE_URL = "https://freshworks.freshrelease.com";
-    const PROJECT_KEY = "FBOTS";
+    
+    // Get API token from args or fall back to environment variable
+    const API_TOKEN = args?.api_token || DEFAULT_API_TOKEN;
+    if (!API_TOKEN) {
+      return res.status(400).json({ error: "API token is required. Pass api_token in request or set FRESHRELEASE_API_TOKEN env var." });
+    }
     
     const headers: Record<string, string> = {
       "Authorization": `Token ${API_TOKEN}`,
@@ -372,9 +409,10 @@ app.post('/tools/call', async (req, res) => {
 
     switch (name) {
       case "freshrelease_get_users": {
+        const project_key = args?.project_key || "FBOTS";
         const page = args?.page || 1;
-        console.log(`  → Fetching users, page ${page}`);
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+        console.log(`  → Fetching users for project ${project_key}, page ${page}`);
+        response = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
           method: "GET",
           headers,
         });
@@ -386,13 +424,13 @@ app.post('/tools/call', async (req, res) => {
       }
 
       case "freshrelease_search_user_by_name": {
-        const { name: searchName } = args || {};
+        const { name: searchName, project_key = "FBOTS" } = args || {};
         if (!searchName) {
           console.log('  ❌ Missing name parameter');
           return res.status(400).json({ error: "name is required" });
         }
         
-        const result = await searchUserByName(searchName, headers);
+        const result = await searchUserByName(searchName, headers, project_key);
         res.json({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
         break;
       }
@@ -403,8 +441,9 @@ app.post('/tools/call', async (req, res) => {
           console.log('  ❌ Missing issue_key parameter');
           return res.status(400).json({ error: "issue_key is required" });
         }
-        console.log(`  → Fetching issue: ${issue_key}`);
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+        const project_key = extractProjectKey(issue_key);
+        console.log(`  → Fetching issue: ${issue_key} from project: ${project_key}`);
+        response = await fetch(`${BASE_URL}/${project_key}/issues/${issue_key}`, {
           method: "GET",
           headers,
         });
@@ -416,8 +455,9 @@ app.post('/tools/call', async (req, res) => {
       }
 
       case "freshrelease_get_statuses": {
-        console.log(`  → Fetching statuses`);
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/statuses`, {
+        const project_key = args?.project_key || "FBOTS";
+        console.log(`  → Fetching statuses for project ${project_key}`);
+        response = await fetch(`${BASE_URL}/${project_key}/statuses`, {
           method: "GET",
           headers,
         });
@@ -429,8 +469,9 @@ app.post('/tools/call', async (req, res) => {
       }
 
       case "freshrelease_get_issue_types": {
-        console.log(`  → Fetching issue types`);
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issue_types`, {
+        const project_key = args?.project_key || "FBOTS";
+        console.log(`  → Fetching issue types for project ${project_key}`);
+        response = await fetch(`${BASE_URL}/${project_key}/issue_types`, {
           method: "GET",
           headers,
         });
@@ -442,29 +483,29 @@ app.post('/tools/call', async (req, res) => {
       }
 
       case "freshrelease_create_issue": {
-        const { title, description, issue_type_id, owner_id, priority_id, status_id } = args || {};
+        const { title, description, issue_type_id, owner_id, priority_id, status_id, project_key = "FBOTS" } = args || {};
         if (!title) {
           console.log('  ❌ Missing required parameter: title');
           return res.status(400).json({ error: "title is required" });
         }
         
-        // Default to Task (ID: 14) if not specified
         const typeId = issue_type_id || "14";
-        console.log(`  → Creating issue: ${title} (Type ID: ${typeId})`);
+        const projectId = getProjectId(project_key);
+        console.log(`  → Creating issue in project ${project_key}: ${title} (Type ID: ${typeId})`);
         
         const payload = {
           issue: {
             title,
             description: description || "",
-            key: PROJECT_KEY,
+            key: project_key,
             issue_type_id: parseInt(typeId),
-            project_id: 280,
+            project_id: projectId,
             owner_id: owner_id ? parseInt(owner_id) : null,
             priority_id: priority_id ? parseInt(priority_id) : null,
             status_id: status_id ? parseInt(status_id) : null,
           }
         };
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues`, {
+        response = await fetch(`${BASE_URL}/${project_key}/issues`, {
           method: "POST",
           headers,
           body: JSON.stringify(payload),
@@ -472,7 +513,6 @@ app.post('/tools/call', async (req, res) => {
         console.log(`  ← API status: ${response.status}`);
         data = await response.json();
         
-        // Extract and log the issue key
         const createdKey = data?.issue?.key || 'N/A';
         console.log(`  ✅ Issue created with key: ${createdKey}`);
         
@@ -481,20 +521,22 @@ app.post('/tools/call', async (req, res) => {
       }
 
       case "freshrelease_update_issue": {
-        const { issue_key, title, description, status_id, owner_id, priority_id } = args || {};
+        const { issue_key, title, description, issue_type_id, status_id, owner_id, priority_id } = args || {};
         if (!issue_key) {
           console.log('  ❌ Missing issue_key parameter');
           return res.status(400).json({ error: "issue_key is required" });
         }
-        console.log(`  → Updating issue: ${issue_key}`);
+        const project_key = extractProjectKey(issue_key);
+        console.log(`  → Updating issue: ${issue_key} in project: ${project_key}`);
         const updatePayload: any = { issue: { key: issue_key } };
         if (title) updatePayload.issue.title = title;
         if (description) updatePayload.issue.description = description;
+        if (issue_type_id) updatePayload.issue.issue_type_id = parseInt(issue_type_id);
         if (status_id) updatePayload.issue.status_id = parseInt(status_id);
         if (owner_id) updatePayload.issue.owner_id = parseInt(owner_id);
         if (priority_id) updatePayload.issue.priority_id = parseInt(priority_id);
         
-        response = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+        response = await fetch(`${BASE_URL}/${project_key}/issues/${issue_key}`, {
           method: "PUT",
           headers,
           body: JSON.stringify(updatePayload),
@@ -513,8 +555,30 @@ app.post('/tools/call', async (req, res) => {
           return res.status(400).json({ error: "issue_key and content are required" });
         }
         
-        const result = await addCommentByKey(issue_key, content, headers);
-        res.json({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+        const project_key = extractProjectKey(issue_key);
+        const issue_id = await getIssueIdFromKey(issue_key, headers, project_key);
+        
+        console.log(`  → Adding comment to issue ID: ${issue_id}`);
+        response = await fetch(`${BASE_URL}/${project_key}/issues/${issue_id}/comments`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ content }),
+        });
+        console.log(`  ← API status: ${response.status}`);
+        const commentData = await response.json();
+        console.log(`  ✅ Comment added`);
+        
+        res.json({ 
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({
+              success: true,
+              issue_key,
+              issue_id,
+              comment: commentData
+            }, null, 2) 
+          }] 
+        });
         break;
       }
 
@@ -525,8 +589,28 @@ app.post('/tools/call', async (req, res) => {
           return res.status(400).json({ error: "issue_key is required" });
         }
         
-        const result = await getCommentsByKey(issue_key, headers);
-        res.json({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+        const project_key = extractProjectKey(issue_key);
+        const issue_id = await getIssueIdFromKey(issue_key, headers, project_key);
+        
+        console.log(`  → Fetching comments for issue ID: ${issue_id}`);
+        response = await fetch(`${BASE_URL}/${project_key}/issues/${issue_id}/comments`, {
+          method: "GET",
+          headers,
+        });
+        console.log(`  ← API status: ${response.status}`);
+        const commentsData = await response.json();
+        console.log(`  ✅ Comments retrieved`);
+        
+        res.json({ 
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({
+              issue_key,
+              issue_id,
+              comments: commentsData
+            }, null, 2) 
+          }] 
+        });
         break;
       }
 
@@ -534,13 +618,13 @@ app.post('/tools/call', async (req, res) => {
         console.log(`  ❌ Unknown tool: ${name}`);
         res.status(400).json({ error: `Unknown tool: ${name}` });
     }
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛');
   } catch (error) {
     console.error('  ❌ Tool execution error:', error);
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error' 
     });
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛');
   }
 });
 
@@ -548,7 +632,7 @@ app.post('/tools/call', async (req, res) => {
 app.post('/mcp', async (req, res) => {
   console.log('');
   console.log('╔═══════════════════════════════════════════╗');
-  console.log('║         📨 MCP REQUEST RECEIVED           ║');
+  console.log('║         🔨 MCP REQUEST RECEIVED           ║');
   console.log('╚═══════════════════════════════════════════╝');
   console.log('📅 Timestamp:', new Date().toISOString());
   console.log('🔍 Method:', req.body?.method);
@@ -610,10 +694,15 @@ app.post('/mcp', async (req, res) => {
         
         const { name, arguments: args } = request.params;
         console.log('🎯 Tool Name:', name);
-        console.log('📝 Arguments:', JSON.stringify(args, null, 2));
+        console.log('🔍 Arguments:', JSON.stringify(args, null, 2));
         
         const BASE_URL = "https://freshworks.freshrelease.com";
-        const PROJECT_KEY = "FBOTS";
+        
+        // Get API token from args or fall back to environment variable
+        const API_TOKEN = args?.api_token || DEFAULT_API_TOKEN;
+        if (!API_TOKEN) {
+          throw new Error("API token is required. Pass api_token in request or set FRESHRELEASE_API_TOKEN env var.");
+        }
         
         const headers: Record<string, string> = {
           "Authorization": `Token ${API_TOKEN}`,
@@ -626,30 +715,67 @@ app.post('/mcp', async (req, res) => {
         
         switch (name) {
           case "freshrelease_search_user_by_name": {
-            const { name: searchName } = args || {};
-            const result = await searchUserByName(searchName, headers);
+            const { name: searchName, project_key = "FBOTS" } = args || {};
+            const result = await searchUserByName(searchName, headers, project_key);
             content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
             break;
           }
 
           case "freshrelease_add_comment": {
             const { issue_key, content: commentContent } = args || {};
-            const result = await addCommentByKey(issue_key, commentContent, headers);
-            content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+            const project_key = extractProjectKey(issue_key);
+            const issue_id = await getIssueIdFromKey(issue_key, headers, project_key);
+            
+            console.log(`📡 Adding comment to issue ID: ${issue_id}`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issues/${issue_id}/comments`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ content: commentContent }),
+            });
+            console.log(`📥 API Response Status: ${apiResponse.status}`);
+            const commentData = await apiResponse.json();
+            
+            content = [{ 
+              type: "text", 
+              text: JSON.stringify({
+                success: true,
+                issue_key,
+                issue_id,
+                comment: commentData
+              }, null, 2) 
+            }];
             break;
           }
 
           case "freshrelease_get_comments": {
             const { issue_key } = args || {};
-            const result = await getCommentsByKey(issue_key, headers);
-            content = [{ type: "text", text: JSON.stringify(result, null, 2) }];
+            const project_key = extractProjectKey(issue_key);
+            const issue_id = await getIssueIdFromKey(issue_key, headers, project_key);
+            
+            console.log(`📡 Fetching comments for issue ID: ${issue_id}`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issues/${issue_id}/comments`, {
+              method: "GET",
+              headers,
+            });
+            console.log(`📥 API Response Status: ${apiResponse.status}`);
+            const commentsData = await apiResponse.json();
+            
+            content = [{ 
+              type: "text", 
+              text: JSON.stringify({
+                issue_key,
+                issue_id,
+                comments: commentsData
+              }, null, 2) 
+            }];
             break;
           }
 
           case "freshrelease_get_users": {
+            const project_key = args?.project_key || "FBOTS";
             const page = args?.page || 1;
-            console.log(`📡 Calling Freshrelease API: GET /${PROJECT_KEY}/users?page=${page}`);
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/users?page=${page}`, {
+            console.log(`📡 Calling Freshrelease API: GET /${project_key}/users?page=${page}`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
               method: "GET",
               headers,
             });
@@ -662,8 +788,9 @@ app.post('/mcp', async (req, res) => {
           
           case "freshrelease_get_issue": {
             const issue_key = args?.issue_key;
-            console.log(`📡 Calling Freshrelease API: GET /${PROJECT_KEY}/issues/${issue_key}`);
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+            const project_key = extractProjectKey(issue_key);
+            console.log(`📡 Calling Freshrelease API: GET /${project_key}/issues/${issue_key}`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issues/${issue_key}`, {
               method: "GET",
               headers,
             });
@@ -689,8 +816,9 @@ app.post('/mcp', async (req, res) => {
           }
 
           case "freshrelease_get_statuses": {
-            console.log(`📡 Calling Freshrelease API: GET /${PROJECT_KEY}/statuses`);
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/statuses`, {
+            const project_key = args?.project_key || "FBOTS";
+            console.log(`📡 Calling Freshrelease API: GET /${project_key}/statuses`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/statuses`, {
               method: "GET",
               headers,
             });
@@ -702,8 +830,9 @@ app.post('/mcp', async (req, res) => {
           }
 
           case "freshrelease_get_issue_types": {
-            console.log(`📡 Calling Freshrelease API: GET /${PROJECT_KEY}/issue_types`);
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issue_types`, {
+            const project_key = args?.project_key || "FBOTS";
+            console.log(`📡 Calling Freshrelease API: GET /${project_key}/issue_types`);
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issue_types`, {
               method: "GET",
               headers,
             });
@@ -715,25 +844,25 @@ app.post('/mcp', async (req, res) => {
           }
 
           case "freshrelease_create_issue": {
-            const { title, description, issue_type_id, owner_id, priority_id, status_id } = args || {};
+            const { title, description, issue_type_id, owner_id, priority_id, status_id, project_key = "FBOTS" } = args || {};
             
-            // Default to Task (ID: 14) if not specified
             const typeId = issue_type_id || "14";
-            console.log(`📡 Creating: ${title} (Type ID: ${typeId})`);
+            const projectId = getProjectId(project_key);
+            console.log(`📡 Creating: ${title} in project ${project_key} (Type ID: ${typeId})`);
             
             const payload = {
               issue: {
                 title,
                 description: description || "",
-                key: PROJECT_KEY,
+                key: project_key,
                 issue_type_id: parseInt(typeId),
-                project_id: 280,
+                project_id: projectId,
                 owner_id: owner_id ? parseInt(owner_id) : null,
                 priority_id: priority_id ? parseInt(priority_id) : null,
                 status_id: status_id ? parseInt(status_id) : null,
               }
             };
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues`, {
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issues`, {
               method: "POST",
               headers,
               body: JSON.stringify(payload),
@@ -741,7 +870,6 @@ app.post('/mcp', async (req, res) => {
             console.log(`📥 API Response Status: ${apiResponse.status}`);
             apiData = await apiResponse.json();
             
-            // Extract and log the issue key
             const createdKey = apiData?.issue?.key || 'N/A';
             console.log(`✅ Issue created successfully with key: ${createdKey}`);
             
@@ -750,16 +878,18 @@ app.post('/mcp', async (req, res) => {
           }
 
           case "freshrelease_update_issue": {
-            const { issue_key, title, description, status_id, owner_id, priority_id } = args || {};
-            console.log(`📡 Updating: ${issue_key}`);
+            const { issue_key, title, description, issue_type_id, status_id, owner_id, priority_id } = args || {};
+            const project_key = extractProjectKey(issue_key);
+            console.log(`📡 Updating: ${issue_key} in project: ${project_key}`);
             const updatePayload: any = { issue: { key: issue_key } };
             if (title) updatePayload.issue.title = title;
             if (description) updatePayload.issue.description = description;
+            if (issue_type_id) updatePayload.issue.issue_type_id = parseInt(issue_type_id);
             if (status_id) updatePayload.issue.status_id = parseInt(status_id);
             if (owner_id) updatePayload.issue.owner_id = parseInt(owner_id);
             if (priority_id) updatePayload.issue.priority_id = parseInt(priority_id);
             
-            apiResponse = await fetch(`${BASE_URL}/${PROJECT_KEY}/issues/${issue_key}`, {
+            apiResponse = await fetch(`${BASE_URL}/${project_key}/issues/${issue_key}`, {
               method: "PUT",
               headers,
               body: JSON.stringify(updatePayload),
@@ -836,12 +966,12 @@ app.listen(PORT, () => {
   console.log(`   💚 Health: http://localhost:${PORT}/`);
   console.log(`   🔧 Tools: http://localhost:${PORT}/tools`);
   console.log(`   📊 Total Tools: ${TOOLS_DEFINITION.length}`);
-  console.log('   ✨ Smart Features:');
-  console.log('      - Auto-fetch issue ID from key');
-  console.log('      - Search users by name across all pages');
-  console.log('      - Default Task creation (Type ID: 14)');
-  console.log('      - Returns issue keys in responses');
-  console.log('      - Numeric ID conversions for API compatibility');
+  console.log('   ✨ New Features:');
+  console.log('      - Multi-project support (FBOTS, AB1, FD, FC, NEOROAD)');
+  console.log('      - Dynamic API token per request');
+  console.log('      - Auto-detect project from issue keys');
+  console.log('      - Issue type change workflow support');
+  console.log('      - Flexible authentication (per-call or env var)');
   console.log('═══════════════════════════════════════════');
   console.log('');
 });

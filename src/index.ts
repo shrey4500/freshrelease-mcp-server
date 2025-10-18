@@ -126,31 +126,8 @@ export default function createServer({ config }: { config: z.infer<typeof config
     return {
       tools: [
         {
-          name: "freshrelease_get_users",
-          description: "Get all users in a Freshrelease project. Returns basic user information for a specific page.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              project_key: { 
-                type: "string", 
-                description: "Project key (e.g., 'FBOTS', 'AB1', 'FD', 'FC', 'NEOROAD'). Optional - defaults to 'FBOTS'",
-                default: "FBOTS"
-              },
-              page: { 
-                type: "number", 
-                description: "Page number for pagination. Defaults to 1 if not specified.", 
-                default: 1 
-              },
-              api_token: {
-                type: "string",
-                description: "Freshrelease API token. Optional - uses environment variable if not provided"
-              }
-            },
-          },
-        },
-        {
           name: "freshrelease_search_user_by_name",
-          description: "Search for a Freshrelease user by name or email and return their user ID. Automatically searches across all pages.",
+          description: "Search for a Freshrelease user by name or email and return their user ID. Automatically searches across all pages. Returns the user's ID, name, and email if found.",
           inputSchema: {
             type: "object",
             properties: {
@@ -371,19 +348,6 @@ export default function createServer({ config }: { config: z.infer<typeof config
 
     try {
       switch (name) {
-        case "freshrelease_get_users": {
-          const project_key = (args as any)?.project_key || "FBOTS";
-          const page = (args as any)?.page || 1;
-          console.log(`Fetching users for project ${project_key}, page ${page}`);
-          const response = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
-            method: "GET",
-            headers,
-          });
-          const data = await response.json();
-          console.log('✔ Users fetched successfully');
-          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-        }
-
         case "freshrelease_search_user_by_name": {
           const { name: searchName, project_key = "FBOTS" } = (args as any) || {};
           if (!searchName) {

@@ -56,31 +56,8 @@ function extractProjectKey(issue_key: string): string {
 
 const TOOLS_DEFINITION = [
   {
-    name: "freshrelease_get_users",
-    description: "Get all users in a Freshrelease project. Returns basic user information for a specific page.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        project_key: { 
-          type: "string", 
-          description: "Project key (e.g., 'FBOTS', 'AB1', 'FD', 'FC', 'NEOROAD'). Optional - defaults to 'FBOTS'",
-          default: "FBOTS"
-        },
-        page: { 
-          type: "number", 
-          description: "Page number for pagination. Defaults to 1 if not specified.", 
-          default: 1 
-        },
-        api_token: {
-          type: "string",
-          description: "Freshrelease API token. Optional - uses environment variable if not provided"
-        }
-      },
-    },
-  },
-  {
     name: "freshrelease_search_user_by_name",
-    description: "Search for a Freshrelease user by name or email and return their user ID. Automatically searches across all pages.",
+    description: "Search for a Freshrelease user by name or email and return their user ID. Automatically searches across all pages. Returns the user's ID, name, and email if found.",
     inputSchema: {
       type: "object",
       properties: {
@@ -395,21 +372,6 @@ app.post('/tools/call', async (req, res) => {
     let data: any;
 
     switch (name) {
-      case "freshrelease_get_users": {
-        const project_key = args?.project_key || "FBOTS";
-        const page = args?.page || 1;
-        console.log(`  → Fetching users for project ${project_key}, page ${page}`);
-        response = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
-          method: "GET",
-          headers,
-        });
-        console.log(`  ← API status: ${response.status}`);
-        data = await response.json();
-        console.log(`  ✅ Users data retrieved`);
-        res.json({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
-        break;
-      }
-
       case "freshrelease_search_user_by_name": {
         const { name: searchName, project_key = "FBOTS" } = args || {};
         if (!searchName) {
@@ -756,21 +718,6 @@ app.post('/mcp', async (req, res) => {
             }];
             break;
           }
-
-          case "freshrelease_get_users": {
-            const project_key = args?.project_key || "FBOTS";
-            const page = args?.page || 1;
-            console.log(`📡 Calling Freshrelease API: GET /${project_key}/users?page=${page}`);
-            apiResponse = await fetch(`${BASE_URL}/${project_key}/users?page=${page}`, {
-              method: "GET",
-              headers,
-            });
-            console.log(`📥 API Response Status: ${apiResponse.status}`);
-            apiData = await apiResponse.json();
-            console.log(`✅ Users data retrieved successfully`);
-            content = [{ type: "text", text: JSON.stringify(apiData, null, 2) }];
-            break;
-          }
           
           case "freshrelease_get_issue": {
             const issue_key = args?.issue_key;
@@ -951,12 +898,12 @@ app.listen(PORT, () => {
   console.log(`   💚 Health: http://localhost:${PORT}/`);
   console.log(`   🔧 Tools: http://localhost:${PORT}/tools`);
   console.log(`   📊 Total Tools: ${TOOLS_DEFINITION.length}`);
-  console.log('   ✨ New Features:');
+  console.log('   ✨ Features:');
   console.log('      - Multi-project support (FBOTS, AB1, FD, FC, NEOROAD)');
   console.log('      - Dynamic API token per request');
   console.log('      - Auto-detect project from issue keys');
   console.log('      - Issue type change workflow support');
-  console.log('      - Flexible authentication (per-call or env var)');
+  console.log('      - User search across all pages');
   console.log('═══════════════════════════════════════════');
   console.log('');
 });
